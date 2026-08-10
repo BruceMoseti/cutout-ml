@@ -33,7 +33,6 @@ from __future__ import annotations
 
 import dataclasses
 import gc
-import json
 import statistics
 import time
 import uuid
@@ -47,7 +46,7 @@ import torch
 
 from cutoutml.benchmarks.contention import LoadSnapshot, sample
 from cutoutml.benchmarks.environment import Environment, capture
-from cutoutml.core.config import get_settings
+from cutoutml.benchmarks.results import latest_report, load_report, save_report
 from cutoutml.core.devices import (
     Precision,
     peak_memory_bytes,
@@ -649,25 +648,13 @@ def _summarise(results: Sequence[CaseResult]) -> dict[str, Any]:
     }
 
 
-def save_report(report: dict[str, Any], directory: Path | str | None = None) -> Path:
-    """Write a report to ``benchmarks/results/<timestamp>-<id>.json``."""
-    target_dir = Path(directory) if directory else get_settings().benchmark_results_dir
-    target_dir.mkdir(parents=True, exist_ok=True)
-    path = target_dir / f"{report['run_id']}.json"
-    path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
-    log.info("benchmark_report_saved", path=str(path))
-    return path
-
-
-def load_report(path: Path | str) -> dict[str, Any]:
-    """Read a saved report."""
-    return json.loads(Path(path).read_text())  # type: ignore[no-any-return]
-
-
-def latest_report(directory: Path | str | None = None) -> dict[str, Any] | None:
-    """Most recent report in ``directory`` by filename (timestamp-prefixed)."""
-    target = Path(directory) if directory else get_settings().benchmark_results_dir
-    files = sorted(target.glob("*.json"))
-    if not files:
-        return None
-    return load_report(files[-1])
+__all__ = [
+    "BenchmarkCase",
+    "BenchmarkConfig",
+    "BenchmarkHarness",
+    "CaseResult",
+    "LatencyStats",
+    "latest_report",
+    "load_report",
+    "save_report",
+]

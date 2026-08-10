@@ -9,6 +9,14 @@ rationale is written up in ``docs/decisions/ADR-001-model-registry.md``.
 Adapters are referenced by dotted path and imported lazily, so listing the
 catalogue (which ``GET /models`` does on every call) never imports TensorRT or
 even instantiates a network.
+
+This module is deliberately **torch-free at import time**. It is the one piece of the
+model layer the API depends on, and the API is meant to load nothing: it answers "does
+this model exist and could it run here?" from declarative data
+(:mod:`cutoutml.models.spec`) and from paths on disk. torch arrives only when
+:func:`get_model` actually imports an adapter. ``tests/test_api_import_boundary.py``
+enforces this, because it is the kind of property that a single convenient top-level
+import silently destroys.
 """
 
 from __future__ import annotations
@@ -17,12 +25,15 @@ import importlib
 import importlib.util
 import threading
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from cutoutml.core.config import REPO_ROOT, get_settings
-from cutoutml.core.devices import Precision
 from cutoutml.core.logging import get_logger
-from cutoutml.models.base import ModelSpec, SegmentationModel
+from cutoutml.core.precision import Precision
+from cutoutml.models.spec import ModelSpec
+
+if TYPE_CHECKING:
+    from cutoutml.models.base import SegmentationModel
 
 log = get_logger(__name__)
 
@@ -74,6 +85,11 @@ def list_model_names() -> list[str]:
 
 
 def _import_adapter(dotted: str) -> type[SegmentationModel]:
+    # The base class is imported here rather than at module scope because it pulls in
+    # torch: an adapter is only ever needed when a model is about to be instantiated,
+    # and by then the adapter module imports torch anyway.
+    from cutoutml.models.base import SegmentationModel
+
     module_path, _, class_name = dotted.rpartition(".")
     module = importlib.import_module(module_path)
     cls = getattr(module, class_name)

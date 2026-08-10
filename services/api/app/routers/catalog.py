@@ -17,7 +17,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Query, status
 
-from cutoutml.benchmarks.harness import load_report
+from cutoutml.benchmarks.results import load_report
 from cutoutml.core.logging import get_logger
 from cutoutml.models.registry import catalogue, list_models
 from services.api.app.deps import RateLimited, SettingsDep

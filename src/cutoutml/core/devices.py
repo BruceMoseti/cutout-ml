@@ -16,16 +16,18 @@ import contextlib
 import dataclasses
 import platform
 from collections.abc import Iterator
-from typing import Literal, cast
+from typing import cast
 
 import torch
 from torch import nn
 
 from cutoutml.core.logging import get_logger
 
-log = get_logger(__name__)
+# Re-exported: naming a precision must not require importing torch, so the vocabulary
+# lives in :mod:`cutoutml.core.precision` and the resolution logic lives here.
+from cutoutml.core.precision import Precision
 
-Precision = Literal["fp32", "fp16", "bf16"]
+log = get_logger(__name__)
 
 _DTYPES: dict[str, torch.dtype] = {
     "fp32": torch.float32,
