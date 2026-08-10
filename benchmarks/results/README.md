@@ -104,17 +104,19 @@ identical to all printed digits; where it differs, the weights were retrained. L
 figures are not reproducible in that sense and are not claimed to be - each carries the
 machine load measured while it was taken.
 
-The two GrabCut rows (`classical-grabcut` and `classical-saliency+grabcut`) are outside that
-guarantee, which is worth knowing before you treat a difference as a regression. They have no
-checkpoint, and OpenCV's GrabCut seeds its colour model from a process-global RNG: six
-consecutive calls on one unchanged image return six different masks. Their IoU is therefore a
-function of how many GrabCut calls preceded the accuracy pass, and because each case is timed
-before it is scored, the repetition count reaches an accuracy number. Run the argument-free
-`cutoutml benchmark` and `classical-grabcut` reproduces its published 0.6614097183795684
-exactly; run it with `--repetitions 1` and it reproduces 0.6521175948596327 just as reliably.
-Every other row in the table is indifferent to the repetition count - `trivial-ones`,
-`trivial-center`, `classical-saliency`, `cutoutnet-fp32` and `u2net-pretrained` were each
-re-measured at both settings and returned their published IoU to ten decimal places.
+The two GrabCut rows (`classical-grabcut` and `classical-saliency+grabcut`) have no checkpoint,
+so a digest cannot stand behind them. They are reproducible for a different reason: OpenCV's
+GrabCut seeds its colour model from a process-global RNG, and the harness resets that RNG to
+`EVAL_RNG_SEED` immediately before every accuracy pass. Their IoU is therefore independent of
+the repetition count, of what ran earlier in the process, and of the machine.
+
+That reset is load-bearing rather than tidy. Before it, six consecutive GrabCut calls on one
+unchanged image returned six different masks, and since each case is timed before it is scored,
+`--repetitions` decided how many draws preceded scoring: the argument-free invocation reported
+0.6614097183795684 while `--repetitions 1` reported 0.6521175948596327, each stable enough on
+repeat runs to look like a real difference. Runs archived here from before that fix carry the
+older values, which is why a row can differ from the current one without anything having
+regressed. `tests/test_classical_baseline.py` fails if the reset is removed.
 
 **One exception, and it is a real caveat on the table.** The `u2net.pt` and `u2netp.pt`
 digests in the current run (`46c41386...` and `8a1241a9...`) were produced by a converter

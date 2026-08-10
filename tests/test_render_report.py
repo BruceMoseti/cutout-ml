@@ -274,16 +274,16 @@ def test_the_ordering_caveat_quantifies_itself_from_the_run_it_describes():
     assert "1.5x" not in block
 
 
-def test_the_methodology_qualifies_the_grabcut_rows_rather_than_all_accuracy():
-    """The blanket version of this claim - accuracy is a deterministic function of the
-    weights and the eval set - is false for the two rows that have no weights, and it was
-    published for a while. `test_grabcut_is_not_reproducible_call_to_call` pins the
-    behaviour the qualification describes."""
+def test_the_methodology_separates_how_latency_and_accuracy_are_measured():
+    """The published claim was once that accuracy follows from the weights and the eval
+    set, which says nothing about a baseline that has no weights. The rule that actually
+    holds - timed as production runs it, scored from a fixed RNG state - has to be on the
+    page, because it is the reason the classical rows are reproducible at all."""
     block = " ".join(methodology_block(report_of(case(name="classical-grabcut"))).split())
 
-    assert "GrabCut rows are the exception" in block
-    assert "repetition count" in block
-    assert "deterministic function of the weights and the eval set" in block
+    assert "Latency and accuracy are measured under different rules" in block
+    assert "resets that RNG immediately before every accuracy pass" in block
+    assert "Nothing is reset inside the timed section" in block
 
 
 def test_a_run_that_duplicates_no_configuration_makes_no_spread_claim():

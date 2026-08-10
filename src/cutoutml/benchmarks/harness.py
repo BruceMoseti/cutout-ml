@@ -40,6 +40,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+import cv2
 import numpy as np
 import psutil
 import torch
@@ -69,6 +70,19 @@ from cutoutml.models.torch_compile import CompileOutcome, compile_module, not_at
 log = get_logger(__name__)
 
 RESULTS_SCHEMA_VERSION = 2
+
+#: OpenCV's global RNG is reset to this before every accuracy pass.
+#:
+#: GrabCut seeds its colour model from that RNG, so its output depends on how many
+#: OpenCV draws happened earlier in the process. Since each case is timed before it is
+#: scored, that made a scored mask a function of ``--repetitions`` - a latency knob
+#: silently moving an accuracy number. Resetting here makes the accuracy pass start from
+#: a fixed state whatever ran before it, at no cost to models that never touch the RNG.
+#:
+#: The value is arbitrary; only its fixedness matters. It is deliberately not derived
+#: from the dataset seed, so that re-seeding the eval set cannot quietly re-roll a
+#: classical baseline's score at the same time.
+EVAL_RNG_SEED = 0
 
 
 @dataclasses.dataclass(slots=True)
@@ -525,7 +539,14 @@ class BenchmarkHarness:
         )
 
     def _measure_accuracy(self, model: SegmentationModel, case: BenchmarkCase) -> dict[str, float]:
-        """Full metric bundle over the eval set, batched at the case's batch size."""
+        """Full metric bundle over the eval set, batched at the case's batch size.
+
+        The OpenCV RNG is reset first so this pass is a function of the model and the eval
+        set alone - see :data:`EVAL_RNG_SEED`. It is reset here rather than once at startup
+        because the timing loop runs first and consumes draws, and never inside the timed
+        section, where it would be measuring something production does not do.
+        """
+        cv2.setRNGSeed(EVAL_RNG_SEED)
         samples = self.samples()
         metrics: list[MaskMetrics] = []
         refine_cfg = self.config.refine if case.refine else RefineConfig.off()
@@ -655,6 +676,7 @@ def _summarise(results: Sequence[CaseResult]) -> dict[str, Any]:
 
 
 __all__ = [
+    "EVAL_RNG_SEED",
     "BenchmarkCase",
     "BenchmarkConfig",
     "BenchmarkHarness",

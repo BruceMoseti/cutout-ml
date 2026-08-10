@@ -308,22 +308,23 @@ Two metrics deserve attention because they disagree usefully:
   MAE uses the continuous alpha, so a model that produces correct-but-mushy soft edges
   is punished by MAE and not by IoU. For matting, MAE is the more honest number.
 
-Every learned row's accuracy is a deterministic function of the weights and the eval set:
-re-measuring `cutoutnet-fp32` or `u2net-pretrained` returns the IoU published here to ten
-decimal places, whatever else the machine was doing and whatever the timing settings were.
+**Latency and accuracy are measured under different rules, deliberately.** A latency figure
+is worth having only if it reflects normal execution, so the timed loop runs the model
+exactly as production would. An accuracy figure is worth having only if it is reproducible,
+so the scoring pass runs from a controlled evaluation state.
 
-**The two GrabCut rows are the exception, and it is worth knowing before you read a
-difference as a regression.** OpenCV's GrabCut seeds its colour model from a process-global
-RNG, so six consecutive calls on one unchanged image return six slightly different masks.
-Their IoU is therefore a function of how many GrabCut calls preceded the accuracy pass, and
-since each case is timed before it is scored, the repetition count reaches an accuracy
-number while looking purely like a latency knob. Run the argument-free `cutoutml benchmark`
-and `classical-grabcut` reproduces its published IoU exactly; run `--repetitions 1` and it
-reproduces a different value just as reliably (0.6521 against 0.6614). Both are stable, so
-neither looks like noise. No conclusion here rests on that digit - the point of the row is
-that the best non-learned baseline sits near 0.65 while a small trained network reaches
-0.85 - but it is the reason to reproduce accuracy with the committed configuration rather
-than with a convenient subset.
+For learned models the distinction costs nothing: accuracy is fixed by the checkpoint, the
+eval set, the preprocessing and the metric implementation, so `cutoutnet-fp32` and
+`u2net-pretrained` return the IoU published here to ten decimal places however they are
+invoked. Classical methods with stochastic initialisation are the reason the rule has to be
+stated. OpenCV's GrabCut seeds its colour model from a process-global RNG, so six
+consecutive calls on one unchanged image return six slightly different masks - and because
+each case is timed before it is scored, `--repetitions` used to decide how many draws
+preceded the scoring pass. A latency knob moved an accuracy number, in stable increments
+that looked nothing like noise. The harness now resets that RNG immediately before every
+accuracy pass, so a score depends on the model and the eval set and not on what ran before
+it. Nothing is reset inside the timed section, where it would measure work production does
+not do.
 
 ### Calibration references
 

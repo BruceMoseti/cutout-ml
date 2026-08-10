@@ -1,49 +1,130 @@
-"""The non-learned baselines.
+"""Reproducibility of the benchmark's accuracy pass.
 
-These exist to give the learned models something to beat, so the only thing that matters
-about them is that their scores mean what the benchmark says they mean. One of them does
-not: GrabCut's score depends on how many times it has already been called in the process,
-which the benchmark documentation has to qualify because the harness times every case
-before it scores it. The test below pins that behaviour so the qualification cannot
-quietly become wrong in either direction - if OpenCV ever makes GrabCut reproducible, this
-fails and `docs/benchmarks.md` should stop warning about it.
+GrabCut seeds its colour model from OpenCV's process-global RNG, so its output depends on
+how many draws happened earlier in the process. Because the harness times every case
+before it scores it, that made a published accuracy number a function of `--repetitions`:
+a flag that should only decide how much latency data is collected was changing the score.
+
+The harness now resets that RNG immediately before each accuracy pass
+(:data:`cutoutml.benchmarks.harness.EVAL_RNG_SEED`), so the pass starts from a fixed state
+whatever ran before it. These tests hold that invariant from both ends - the score must not
+move when the timing work around it changes, and the reset itself must still be there.
 """
 
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
-from cutoutml.datasets.synthetic import SyntheticSegmentationDataset
-from cutoutml.models.classical.baseline import grabcut_mask, spectral_residual_saliency
+from cutoutml.benchmarks.harness import (
+    EVAL_RNG_SEED,
+    BenchmarkCase,
+    BenchmarkConfig,
+    BenchmarkHarness,
+)
+from cutoutml.models.base import WeightsUnavailableError
+from cutoutml.models.classical.baseline import grabcut_mask
 
-
-def _eval_image() -> np.ndarray:
-    """The first test-split sample, which is what the benchmark scores first."""
-    image, _ = SyntheticSegmentationDataset(count=4, seed=20240817, split="test")[0]
-    if image.dtype != np.uint8:
-        image = (image * 255).clip(0, 255).astype(np.uint8)
-    return image
-
-
-def test_grabcut_is_not_reproducible_call_to_call():
-    """OpenCV seeds GrabCut's colour model from a process-global RNG, so the call index is
-    a hidden input. This is why `classical-grabcut` reproduces its published IoU only at
-    the committed repetition count."""
-    image = _eval_image()
-
-    masks = [grabcut_mask(image, iterations=5) for _ in range(6)]
-    means = {round(float(m.mean()), 10) for m in masks}
-
-    assert len(means) > 1, "GrabCut became reproducible; the benchmark caveat is now stale"
+#: The published `cutoutnet-fp32` IoU. Pinned so that a change to the eval set, the
+#: preprocessing or the metric implementation cannot pass as a change to the RNG fix.
+PUBLISHED_CUTOUTNET_IOU = 0.8544288202661507
 
 
-def test_saliency_is_reproducible_call_to_call():
-    """The contrast with GrabCut is the point: nothing about running a baseline twice is
-    inherently unstable, so the caveat belongs to GrabCut rather than to the classical
-    family."""
-    image = _eval_image()
+def _harness(*, repetitions: int, samples: int = 2) -> BenchmarkHarness:
+    """A harness on the committed defaults, shrunk to what a test needs.
 
-    masks = [spectral_residual_saliency(image) for _ in range(4)]
+    `load_sample_seconds=0` skips the contention probe, which measures the machine rather
+    than the model and costs a second per case.
+    """
+    return BenchmarkHarness(
+        BenchmarkConfig(
+            warmup=0,
+            repetitions=repetitions,
+            accuracy_samples=samples,
+            load_sample_seconds=0.0,
+        )
+    )
 
-    for later in masks[1:]:
-        assert np.array_equal(masks[0], later)
+
+def _grabcut_iou(harness: BenchmarkHarness) -> float:
+    result = harness.run_case(BenchmarkCase(model="classical", label="classical-grabcut"))
+    assert result.status == "ok", result.error
+    assert result.accuracy is not None
+    return result.accuracy["iou"]
+
+
+def _burn_opencv_rng() -> None:
+    """Advance OpenCV's global RNG the way a preceding case would."""
+    image = np.zeros((64, 64, 3), dtype=np.uint8)
+    image[16:48, 16:48] = 255
+    for _ in range(3):
+        grabcut_mask(image, iterations=2)
+
+
+def test_the_same_evaluation_twice_gives_the_same_score():
+    """The weakest form of the invariant, and the one that failed before: two identical
+    evaluations in one process differ if the second inherits the first's RNG state."""
+    first = _grabcut_iou(_harness(repetitions=1))
+    second = _grabcut_iou(_harness(repetitions=1))
+
+    assert first == second
+
+
+def test_the_repetition_count_does_not_move_the_accuracy():
+    """`--repetitions` decides how many times the model is timed. Each of those calls used
+    to advance the RNG that the scoring pass then drew from, so the committed default and
+    a single repetition produced two different, individually stable, published scores."""
+    committed_default = BenchmarkConfig().repetitions
+    assert committed_default > 1, "this test needs two distinct repetition counts"
+
+    at_one = _grabcut_iou(_harness(repetitions=1))
+    at_default = _grabcut_iou(_harness(repetitions=committed_default))
+
+    assert at_one == at_default
+
+
+def test_unrelated_opencv_work_beforehand_does_not_move_the_accuracy():
+    """Execution order is the general case of the repetition count: any earlier case that
+    draws from the RNG would otherwise shift every classical score after it."""
+    baseline = _grabcut_iou(_harness(repetitions=1))
+
+    _burn_opencv_rng()
+    after_burn = _grabcut_iou(_harness(repetitions=1))
+
+    assert after_burn == baseline
+
+
+def test_the_accuracy_pass_reseeds_rather_than_happening_to_agree():
+    """Behavioural tests above would still pass if the reset were deleted on a day the
+    surrounding call counts happened to line up. This one fails the moment the call goes,
+    which is the point: the guarantee is the reset, not today's arithmetic."""
+    seeds: list[int] = []
+    harness = _harness(repetitions=1)
+
+    with pytest.MonkeyPatch.context() as patch:
+        import cutoutml.benchmarks.harness as harness_module
+
+        real = harness_module.cv2.setRNGSeed
+
+        def record(seed: int) -> None:
+            seeds.append(seed)
+            real(seed)
+
+        patch.setattr(harness_module.cv2, "setRNGSeed", record)
+        _grabcut_iou(harness)
+
+    assert seeds == [EVAL_RNG_SEED]
+
+
+def test_a_learned_model_scores_exactly_what_it_published():
+    """The fix must not have touched anything that does not draw from OpenCV's RNG."""
+    harness = _harness(repetitions=1, samples=64)
+
+    try:
+        result = harness.run_case(BenchmarkCase(model="cutoutnet", label="cutoutnet-fp32"))
+    except WeightsUnavailableError:  # pragma: no cover - weights ship with the repo
+        pytest.skip("cutoutnet weights unavailable in this environment")
+
+    assert result.status == "ok", result.error
+    assert result.accuracy is not None
+    assert result.accuracy["iou"] == PUBLISHED_CUTOUTNET_IOU
