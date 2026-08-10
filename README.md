@@ -57,10 +57,12 @@ synthetic eval set is not comparable to published DUTS/DIS5K numbers are all in
 - **Temporal smoothing** (EMA or median) with `estimate_flicker()` to report the
   frame-to-frame alpha difference with and without it, so the responsiveness trade-off is a
   measurement rather than a default nobody questions.
-- **Thirteen registered models**: three original CutoutNet widths trained in-repo, a
-  U²-Net reimplementation that loads the official checkpoints, a BiRefNet-inspired
-  architecture, an ONNX Runtime path, a TensorRT path, three classical baselines and two
-  trivial calibration references.
+- **Sixteen registered models**: three original CutoutNet widths trained in-repo, a
+  U²-Net reimplementation that loads the authors' published weights at both sizes plus a
+  U²-Net-P trained here, three ONNX Runtime paths, a TensorRT path, a BiRefNet-inspired
+  architecture, three classical baselines and two trivial calibration references. The
+  trivial pair exists to calibrate the others: a model that cannot beat "predict
+  foreground everywhere" has not learned anything.
 - **Async API**: JWT auth, two-phase and presigned uploads, idempotency keys, job/run
   history, cancellation, Prometheus metrics, split liveness and readiness.
 - **Training**: an architecture-agnostic trainer over a deterministic procedural dataset,
