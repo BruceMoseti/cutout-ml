@@ -158,6 +158,19 @@ def main_table(report: dict[str, Any]) -> str:
     return "\n".join(rows)
 
 
+def _cores(value: float) -> str:
+    """Format a busy-core count without rounding a nonzero measurement away.
+
+    One decimal place turns a measured 0.04 into "0.0", which reads as "no external
+    demand at all" and is a claim the data does not make. A published number should never
+    round in the direction that flatters it, least of all the one qualifying every timing
+    in the document.
+    """
+    if value and abs(value) < 0.05:
+        return f"{value:.2f}"
+    return f"{value:.1f}"
+
+
 def contention_block(report: dict[str, Any]) -> str:
     """Per-case external CPU demand, and what it does and does not invalidate."""
     cases = [c for c in report["cases"] if c.get("load")]
@@ -171,12 +184,12 @@ def contention_block(report: dict[str, Any]) -> str:
     if not contended:
         return (
             f"Every case was measured on a quiet machine: external demand never exceeded "
-            f"{peak:.1f} of {cores} cores. The latency figures are this hardware's."
+            f"{_cores(peak)} of {cores} cores. The latency figures are this hardware's."
         )
 
     rows = [
         f"**{len(contended)} of {len(cases)} timed cases were measured under contention.** "
-        f"External demand peaked at {peak:.1f} of {cores} cores ({peak / cores:.0%} of the "
+        f"External demand peaked at {_cores(peak)} of {cores} cores ({peak / cores:.0%} of the "
         "machine) while these timings were taken.",
         "",
         "The latency, throughput and peak-memory columns for those rows are therefore upper "
@@ -194,9 +207,9 @@ def contention_block(report: dict[str, Any]) -> str:
     for case in cases:
         load = case["load"]
         rows.append(
-            "| `{name}` | {external:.1f} / {cores} | {avg} | {ok} |".format(
+            "| `{name}` | {external} / {cores} | {avg} | {ok} |".format(
                 name=case["case"]["name"],
-                external=load["external_busy_cores"],
+                external=_cores(load["external_busy_cores"]),
                 cores=load["logical_cpus"],
                 avg=_fmt(load.get("load_average_1m"), 1),
                 ok="yes" if load["quiet"] else "**no**",
@@ -1022,10 +1035,7 @@ Two metrics deserve attention because they disagree usefully:
 
 ### Calibration references
 
-The table includes deliberately content-blind rows (`trivial-ones`, `trivial-center`).
-They exist because IoU is only interpretable relative to what predicting *nothing*
-achieves: on a set where the foreground covers ~35% of the frame, "predict everything"
-already scores 0.35 IoU. Any row that does not clearly beat those has learned nothing.
+{calibration_floor}
 `classical` (GrabCut from a centred rectangle) is the strongest non-learned baseline
 and is the number a learned model has to beat to be worth its weights.
 
@@ -1199,12 +1209,44 @@ def _contention_limitation(report: dict[str, Any]) -> str:
     )
 
 
+def _calibration_floor(report: dict[str, Any]) -> str:
+    """The calibration paragraph, with the floor read from this run's ``trivial-ones`` row.
+
+    ``trivial-ones`` predicts foreground everywhere, so its IoU *is* the eval set's mean
+    foreground coverage. Deriving the sentence rather than writing the number down keeps it
+    in step with the generator, and stops it being stated as a round figure below the one
+    measured - which would understate the floor every other row has to clear.
+    """
+    floor = (
+        "On this set the foreground covers 35% of the frame, so a model that predicts "
+        "everything already scores that as its IoU."
+    )
+    for case in report["cases"]:
+        if case["case"].get("model") != "trivial-ones" or not case.get("accuracy_valid"):
+            continue
+        iou = (case.get("accuracy") or {}).get("iou")
+        if iou is not None:
+            floor = (
+                f"On this set the foreground covers {iou:.1%} of the frame, so "
+                f'"predict everything" already scores {iou:.4f} IoU.'
+            )
+        break
+    return textwrap.fill(
+        "The table includes deliberately content-blind rows (`trivial-ones`, "
+        "`trivial-center`). They exist because IoU is only interpretable relative to what "
+        f"predicting *nothing* achieves. {floor} Any row that does not clearly beat those "
+        "has learned nothing.",
+        width=88,
+    )
+
+
 def methodology_block(report: dict[str, Any]) -> str:
     """The methodology section, with its run-specific figures filled from the report."""
     return METHODOLOGY_TEMPLATE.format(
         warmup_penalty=_warmup_penalty(report),
         ordering_caveat=_ordering_caveat(report),
         contention_limitation=_contention_limitation(report),
+        calibration_floor=_calibration_floor(report),
     )
 
 

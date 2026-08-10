@@ -52,7 +52,7 @@
 
 ## Machine contention
 
-Every case was measured on a quiet machine: external demand never exceeded 0.0 of 8 cores. The latency figures are this hardware's.
+Every case was measured on a quiet machine: external demand never exceeded 0.04 of 8 cores. The latency figures are this hardware's.
 
 ## Thread scaling
 
@@ -306,8 +306,8 @@ Two metrics deserve attention because they disagree usefully:
 
 The table includes deliberately content-blind rows (`trivial-ones`, `trivial-center`).
 They exist because IoU is only interpretable relative to what predicting *nothing*
-achieves: on a set where the foreground covers ~35% of the frame, "predict everything"
-already scores 0.35 IoU. Any row that does not clearly beat those has learned nothing.
+achieves. On this set the foreground covers 35.9% of the frame, so "predict everything"
+already scores 0.3590 IoU. Any row that does not clearly beat those has learned nothing.
 `classical` (GrabCut from a centred rectangle) is the strongest non-learned baseline
 and is the number a learned model has to beat to be worth its weights.
 

@@ -26,6 +26,7 @@ from cutoutml.benchmarks.render_report import (
     _contention_mark,
     _sweep_consistency_notes,
     _was_contended,
+    contention_block,
     main_table,
     methodology_block,
     readme_table,
@@ -288,6 +289,50 @@ def test_the_shared_machine_limitation_is_listed_only_when_a_row_was_contended()
     busy = report_of(case(trustworthy=False, external_cores=7.5))
     busy["summary"] = {"cases_measured_under_contention": 1}
     assert "The machine was shared" in methodology_block(busy)
+
+
+# --------------------------------------------------- not rounding in your favour
+
+
+def test_a_small_but_nonzero_external_load_is_not_rounded_away():
+    """One decimal place printed a measured 0.04 busy cores as "0.0", which reads as "no
+    external demand at all" - a stronger claim than the data makes, in the flattering
+    direction, attached to every timing in the document."""
+    report = report_of(case(external_cores=0.04))
+    block = contention_block(report)
+
+    assert "0.04 of 8 cores" in block
+    assert "0.0 of 8 cores" not in block
+
+
+def test_a_load_large_enough_to_show_keeps_one_decimal():
+    assert "1.9 of 8 cores" in contention_block(report_of(case(external_cores=1.904)))
+    assert "0.0 of 8 cores" in contention_block(report_of(case(external_cores=0.0)))
+
+
+def test_the_calibration_floor_is_read_from_the_run_not_written_down():
+    """`trivial-ones` predicts foreground everywhere, so its IoU is the eval set's mean
+    foreground coverage. It was hardcoded as "~35% / 0.35 IoU" against a measured 0.3590,
+    understating the floor every other row has to clear."""
+    trivial = case(name="trivial-ones", model="trivial-ones", p50=0.1)
+    trivial["accuracy"]["iou"] = 0.3590
+    block = methodology_block(report_of(trivial))
+
+    assert "35.9% of the frame" in block
+    assert "0.3590 IoU" in block
+
+    # A different eval set must move the sentence, not leave the old number behind.
+    other = case(name="trivial-ones", model="trivial-ones", p50=0.1)
+    other["accuracy"]["iou"] = 0.4812
+    moved = methodology_block(report_of(other))
+    assert "48.1% of the frame" in moved and "0.4812 IoU" in moved
+    assert "35.9%" not in moved
+
+
+def test_a_run_without_a_calibration_row_makes_no_specific_floor_claim():
+    block = methodology_block(report_of(case()))
+    assert "content-blind rows" in block
+    assert "0.3590 IoU" not in block
 
 
 # ------------------------------------------------------------ smoke-run guard
