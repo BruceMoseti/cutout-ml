@@ -1,0 +1,3 @@
+# Next.js serves this directory at the site root. It is empty (the UI uses inline SVG
+# rather than image files) but must exist: docker/web.Dockerfile copies it into the
+# standalone runtime image, and COPY fails on a missing source path.

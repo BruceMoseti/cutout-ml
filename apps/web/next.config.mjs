@@ -19,6 +19,10 @@ const apiUrl = process.env.CUTOUTML_API_URL ?? 'http://127.0.0.1:8000';
 const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  // Emits .next/standalone: the server plus only the node_modules Next traced as
+  // reachable. docker/web.Dockerfile copies that instead of a full install, which is the
+  // difference between a ~60 MB runtime image and a ~500 MB one.
+  output: 'standalone',
   async rewrites() {
     return [{ source: '/api/:path*', destination: `${apiUrl}/:path*` }];
   },

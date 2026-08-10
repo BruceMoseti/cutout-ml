@@ -13,8 +13,8 @@ WEB    ?= apps/web
 .DEFAULT_GOAL := help
 .PHONY: help venv install install-web fmt lint typecheck test test-integration check \
         train train-suite weights export-onnx eval-data bench bench-quick render-bench \
-        migrate migrate-down api worker web doctor docker-build compose-up compose-down \
-        compose-config clean
+        migrate migrate-down api worker worker-gpu web doctor docker-build compose-up \
+        compose-down compose-config clean
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -96,8 +96,14 @@ api: ## Run the API with reload
 	$(PYTHON) -m uvicorn services.api.app.main:app --reload --host 127.0.0.1 --port 8000
 
 worker: ## Run the Celery worker on the CPU queue
-	$(PYTHON) -m celery -A services.inference.app.celery_app.celery_app worker \
-		-Q cpu,gpu,maintenance -c 2 --loglevel=info
+	$(PYTHON) -m celery -A services.inference.app.celery_app:celery worker \
+		-Q cpu -c 2 -n cpu@%h --loglevel=info
+
+worker-gpu: ## Run the GPU workers (separate concurrencies: see ADR-002)
+	$(PYTHON) -m celery -A services.inference.app.celery_app:celery worker \
+		-Q image-gpu -c 2 -n image@%h --loglevel=info &
+	$(PYTHON) -m celery -A services.inference.app.celery_app:celery worker \
+		-Q video-gpu -c 1 -n video@%h --loglevel=info
 
 web: ## Run the Next.js dev server
 	cd $(WEB) && $(NPM) run dev
