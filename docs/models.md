@@ -16,8 +16,11 @@ below for what to run instead.
 | `cutoutnet-tiny` | CutoutNet-tiny, ~0.12M params | 256×256 | PyTorch | trained in-repo | MIT (original) | MIT (original) |
 | `cutoutnet-base` | CutoutNet-base, ~4.3M params | 256×256 | PyTorch | trained in-repo | MIT (original) | MIT (original) |
 | `cutoutnet-onnx` | CutoutNet-small, exported | 256×256 | ONNX Runtime | exported in-repo | MIT (original) | MIT (original) |
-| `u2net` | U²-Net full, ~44M params | 320×320 | PyTorch | not bundled | Apache-2.0 (reimplemented) | Apache-2.0 (upstream) |
-| `u2net-lite` | U²-Net-P, ~1.1M params | 256×256 | PyTorch | trained in-repo | Apache-2.0 (reimplemented) | MIT (in-repo) or Apache-2.0 (upstream) |
+| `u2net` | U²-Net full, ~44M params | 320×320 | PyTorch | published, converted from ONNX | Apache-2.0 (reimplemented) | Apache-2.0 (upstream) |
+| `u2netp` | U²-Net-P, ~1.1M params | 320×320 | PyTorch | published, converted from ONNX | Apache-2.0 (reimplemented) | Apache-2.0 (upstream) |
+| `u2net-onnx` | U²-Net full graph | 320×320 | ONNX Runtime | published, downloaded | n/a (upstream graph) | Apache-2.0 (upstream) |
+| `u2netp-onnx` | U²-Net-P graph | 320×320 | ONNX Runtime | published, downloaded | n/a (upstream graph) | Apache-2.0 (upstream) |
+| `u2net-lite` | U²-Net-P, ~1.1M params | 256×256 | PyTorch | trained in-repo | Apache-2.0 (reimplemented) | MIT (in-repo) |
 | `birefnet` | BiRefNetCompact | 512×512 | PyTorch | not bundled | MIT (reimplemented) | see below |
 | `classical` | GrabCut from a centred rectangle | 320×320 | OpenCV | none needed | MIT | n/a |
 | `classical-saliency` | Spectral-residual saliency + Otsu | 320×320 | OpenCV | none needed | MIT | n/a |
@@ -52,14 +55,73 @@ the paper's description of the RSU blocks and nested U-structure — but is deli
 **shape-compatible** with the official checkpoints. `U2NetAdapter` remaps upstream key
 names on load, so official `u2net.pth` and `u2netp.pth` files work.
 
-- `u2net-lite` (U²-Net-P, ~1.1M params) is trained in this repository. Those weights are
-  MIT.
-- `u2net` (full, ~44M params) is not trained here: a useful run needs a GPU, so no
-  checkpoint is shipped and **no accuracy figure is claimed**. Its benchmark row is
-  latency-only, with random weights and accuracy explicitly `n/a`.
-- Official pretrained weights are Apache-2.0 and may be downloaded — see below. Accuracy
-  from official weights is **not comparable** to the in-repo runs, which see a different
-  (synthetic) dataset.
+Shape compatibility is enforced rather than asserted. It was in fact broken until
+`from_onnx` refused to convert: the decoder stage widths had been derived from the encoder
+table, which does not match the published architecture (`stage4d` is `RSU4(1024,128,256)`,
+not the `RSU4(1024,*,512)` that mirroring produces, and `stage1d` uses a 16-channel
+bottleneck where its paired encoder stage uses 32). Because the adapter loads with
+`strict=False` to tolerate upstream key renaming, loading the official checkpoint into the
+broken architecture would have skipped the mismatched tensors and run inference on random
+weights with nothing but a log warning. The widths are now transcribed, and the conversion
+tests fail if any tensor does not fit.
+
+**The published weights are obtainable here, and are what `u2net` and `u2netp` run.** The
+authors distribute `u2net.pth` via Google Drive and the `.pth` mirrors are on HuggingFace,
+which is blocked in some networks — but an ONNX export of the same Apache-2.0 weights is
+redistributed from a GitHub release, which is reachable. `make weights-pretrained` fetches
+those graphs and converts them:
+
+```bash
+make weights-pretrained     # downloads u2net.onnx + u2netp.onnx, writes u2net.pt + u2netp.pt
+```
+
+The conversion is not a repackaging. The graphs were exported with constant folding on, so
+each `Conv → BatchNorm` pair has collapsed into one biased convolution, the BatchNorm
+statistics no longer exist, and the parameter names of all 112 folded convolutions are gone
+— they appear as numeric temporaries. Only `side1..side6` and `outconv`, which have no
+BatchNorm after them, keep their names, so the name-based remapping used for a real `.pth`
+cannot work. `cutoutml.models.u2net.from_onnx` instead pairs ONNX `Conv` nodes with the
+module's convolutions positionally (both sequences are in execution order; the PyTorch one
+is recovered by running the module under forward hooks rather than by trusting construction
+order), then proves the pairing three ways: pairwise shapes, the seven convolutions that
+kept their names landing where their names say, and numerical parity against onnxruntime.
+Measured parity is **1.4e-7** for the full model and **1.5e-6** for lite, against a 1e-4
+tolerance — roughly three orders of magnitude finer than one 8-bit alpha level, so the
+difference cannot survive quantisation to a PNG.
+
+The resulting checkpoints have their BatchNorms set to exact identities, because the
+convolutions have absorbed them. That makes them equivalent in `eval()` but **unsuitable for
+fine-tuning**: the BatchNorms are neutral, not calibrated, and would start re-learning
+statistics for activations that have already been scaled. Each file records this, its source
+digest and its licence in a provenance dict stored inside the checkpoint.
+
+- `u2net` / `u2netp` run the authors' weights, Apache-2.0, with **real accuracy figures**.
+- `u2net-onnx` / `u2netp-onnx` run the same weights under onnxruntime. Because parity is
+  verified, the PyTorch and ONNX rows differ only by runtime — which is the only reason
+  comparing them says anything.
+- `u2net-lite` remains the separate, in-repo trained U²-Net-P. Those weights are MIT.
+- Accuracy from the published weights is **not comparable** to the in-repo runs. They were
+  trained on DUTS, a real-photograph saliency dataset, and are evaluated here on a
+  synthetic eval set. See [docs/benchmarks.md](benchmarks.md), where this shows up as the
+  pretrained models scoring *below* a small model trained in-repo on the eval set's own
+  distribution — a domain-shift result, not a quality ranking.
+
+### Preprocessing fidelity
+
+U²-Net's reference pipeline rescales to `[0, 1]`, divides each image by its own maximum
+intensity, and then applies `mean=(0.485, 0.456, 0.406)`, `std=(0.229, 0.224, 0.225)`. The
+max division was previously skipped here on the grounds that it is a no-op for any image
+containing a saturated pixel. That is true of most photographs but false of this eval set,
+where 9 of 16 sampled images peak below 255 — so the pretrained weights were being fed a
+compressed dynamic range they were never trained on. It is now implemented, computed from
+the source pixels rather than the letterboxed canvas so that constant padding cannot set
+the maximum.
+
+Because preprocessing is not part of an ONNX artefact, the ONNX specs carry the same
+requirement explicitly via `intensity_scaling: "max"`. They also declare
+`output_activation: "sigmoid"`, because these graphs apply the sigmoid internally and a
+second one would compress every mask towards 0.5 — visibly softer edges, several IoU
+points, and no error anywhere.
 
 ### BiRefNet (Zheng et al.)
 
@@ -129,7 +191,8 @@ and trainable, but a useful run needs a GPU.
 
 ```bash
 python -m cutoutml.models.download_weights --list
-python -m cutoutml.models.download_weights --model u2net
+make weights-pretrained                                  # the route that works here
+python -m cutoutml.models.download_weights --model u2net # the authors' .pth, needs HuggingFace
 ```
 
 The downloader performs a real streamed download with SHA-256 verification where the
@@ -139,10 +202,13 @@ implicitly — nothing in the API, the worker or the test suite fetches weights.
 
 **Reachability is a real constraint, not a hypothetical.** In the environment this
 repository was built in, `huggingface.co` is blocked at the network layer, and that is where
-the official U²-Net and BiRefNet checkpoints are mirrored. The downloader handles that
-case rather than assuming it away, which is also why the benchmark suite reports
-`u2net` and `birefnet` as latency-only rows instead of omitting them or estimating numbers
-for them.
+the official U²-Net and BiRefNet `.pth` checkpoints are mirrored. Rather than accept that as
+the end of the matter, the downloader routes around it: the same U²-Net weights are
+redistributed as an ONNX export from a GitHub release, which is reachable, and `from_onnx`
+converts them back into a verified PyTorch checkpoint. That is why `u2net` has real accuracy
+numbers here and `birefnet` does not — the BiRefNet checkpoints are not shape-compatible
+with this repository's reimplementation, so no amount of network access would help, and its
+benchmark row stays latency-only rather than being estimated.
 
 ### Which weights the benchmark suite needs
 
@@ -151,7 +217,8 @@ for them.
 | `trivial-*`, `classical-*` | nothing |
 | `cutoutnet-*`, `u2net-lite` | `make weights` |
 | `cutoutnet-onnx` | `make weights` (the ONNX export is its last step) |
-| `u2net-full-randominit`, `birefnet-compact-randominit` | nothing — random weights, latency only |
+| `u2net-pretrained`, `u2netp-pretrained`, and their `-onnx` pairs | `make weights-pretrained` |
+| `birefnet-compact-randominit` | nothing — random weights, latency only |
 | `tensorrt` | CUDA + TensorRT. Not measured on this hardware. |
 
 A case whose checkpoint is missing is reported as `status: skipped` with the reason

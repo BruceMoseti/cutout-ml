@@ -1,0 +1,133 @@
+CutoutML
+Copyright (c) 2026 Bruce Moseti
+
+This product is licensed under the MIT License. See LICENSE for the full text.
+
+This NOTICE records third-party work that CutoutML reimplements, redistributes at
+runtime, or depends on. It exists because the licence of a *model* is not the licence of
+its *weights*, and because two of the weight files this project can download carry terms
+that differ from this repository's. A full discussion is in docs/models.md and
+docs/licensing.md; this file is the short, authoritative attribution list.
+
+No model weights are committed to this repository. Everything below describes artefacts
+that are either produced locally by `make weights` or fetched on demand by
+`python -m cutoutml.models.download_weights`.
+
+================================================================================
+1. Architectures reimplemented in this repository
+================================================================================
+
+U^2-Net
+  Paper:    Qin, Zhang, Huang, Dehghan, Zaiane, Jagersand,
+            "U^2-Net: Going Deeper with Nested U-Structure for Salient Object
+            Detection", Pattern Recognition 106 (2020).
+  Upstream: https://github.com/xuebinqin/U-2-Net
+  Licence:  Apache License 2.0
+
+  src/cutoutml/models/u2net/arch.py is an independent implementation written from the
+  paper, not a copy of the upstream source. It is deliberately shape-compatible with the
+  published checkpoints, and this repository redistributes no upstream code.
+
+BiRefNet
+  Paper:    Zheng, Peng et al., "Bilateral Reference for High-Resolution Dichotomous
+            Image Segmentation", CAAI AIR 2024.
+  Upstream: https://github.com/ZhengPeng7/BiRefNet
+  Licence:  MIT (upstream code)
+
+  src/cutoutml/models/birefnet/ is architecture-inspired rather than a port, and is NOT
+  weight-compatible with the official checkpoints. See section 3 for the warning that
+  matters here.
+
+GrabCut
+  Paper:    Rother, Kolmogorov, Blake, "GrabCut: interactive foreground extraction using
+            iterated graph cuts", SIGGRAPH 2004.
+  Implementation: OpenCV's cv2.grabCut (Apache License 2.0). The seeding, trimap
+  construction and post-processing in this repository are original.
+
+Spectral-residual saliency
+  Paper:    Hou & Zhang, "Saliency Detection: A Spectral Residual Approach", CVPR 2007.
+  Implemented here directly on NumPy/OpenCV FFT primitives.
+
+CutoutNet
+  Original to this repository. Architecture and weights are MIT, and are not derived from
+  any pretrained model.
+
+================================================================================
+2. Pretrained weights this project can download
+================================================================================
+
+u2net.onnx, u2netp.onnx
+  Content:  The U^2-Net authors' published weights, exported to ONNX with the
+            BatchNorm layers folded into their preceding convolutions.
+  Licence:  Apache License 2.0, inherited from the upstream weights.
+  Obtained: https://github.com/danielgatis/rembg/releases/download/v0.0.0/
+            The rembg project (MIT) redistributes these files; the weights themselves
+            originate from https://github.com/xuebinqin/U-2-Net, whose authors
+            distribute them via Google Drive.
+  SHA-256:  u2net.onnx   8d10d2f3bb75ae3b6d527c77944fc5e7dcd94b29809d47a739a7a728a912b491
+            u2netp.onnx  309c8469258dda742793dce0ebea8e6dd393174f89934733ecc8b14c76f4ddd8
+            Both digests are pinned in src/cutoutml/models/download_weights.py and
+            verified on download.
+
+u2net.pt, u2netp.pt
+  Content:  Derived from the two ONNX graphs above by
+            cutoutml.models.u2net.from_onnx, which extracts the folded convolution
+            weights and neutralises the BatchNorm layers. Numerically equivalent to the
+            source graph to within 1.4e-7 (full) and 1.5e-6 (lite), verified against
+            onnxruntime at conversion time.
+  Licence:  Apache License 2.0. A format conversion does not change the licence of the
+            weights, and each converted file carries its provenance and licence inside
+            it rather than in a sidecar that can be separated from the weights.
+
+u2net.pth, u2netp.pth (optional alternative route)
+  Content:  The authors' original PyTorch checkpoints.
+  Licence:  Apache License 2.0.
+  Obtained: HuggingFace mirrors, which are blocked in some networks including the one
+            this repository was developed in.
+
+================================================================================
+3. Weights this project deliberately does NOT download
+================================================================================
+
+BiRefNet checkpoints
+  The official BiRefNet code is MIT, but SOME third-party fine-tuned BiRefNet
+  checkpoints are published under non-commercial terms. Anyone using a BiRefNet
+  checkpoint obtained from a third party is responsible for reading that specific
+  file's licence; "BiRefNet is MIT" is true of the code and not necessarily of the
+  weights.
+
+  This repository ships none, offers no download URL for them, and its BiRefNet
+  reimplementation is not weight-compatible with them in any case - so no
+  non-commercial artefact can arrive here by accident.
+
+================================================================================
+4. Runtime and build dependencies
+================================================================================
+
+PyTorch                     BSD-3-Clause
+NumPy                       BSD-3-Clause
+SciPy                       BSD-3-Clause
+OpenCV (headless)           Apache License 2.0
+Pillow                      MIT-CMU
+ONNX, ONNX Runtime          MIT
+FastAPI, Starlette          MIT
+Pydantic                    MIT
+SQLAlchemy, Alembic         MIT
+Celery                      BSD-3-Clause
+Redis (client)              MIT
+psycopg                     LGPL-3.0
+boto3                       Apache License 2.0
+structlog                   MIT / Apache License 2.0
+prometheus-client           Apache License 2.0
+Next.js, React              MIT
+Tailwind CSS                MIT
+
+ffmpeg                      LGPL-2.1+ or GPL-2.0+, depending on how the binary was
+                            built. CutoutML invokes ffmpeg as a subprocess and does not
+                            link against it, so the GPL build's terms do not extend to
+                            this code. A distributor bundling an ffmpeg binary is
+                            responsible for the terms of the build they ship.
+
+TensorRT                    Proprietary (NVIDIA). Not a dependency: the adapter imports
+                            it lazily and degrades with an explicit error when it is
+                            absent, so nothing here requires accepting NVIDIA's licence.
