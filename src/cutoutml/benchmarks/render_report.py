@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import math
+import sys
 import textwrap
 from pathlib import Path
 from typing import Any
@@ -1207,6 +1208,30 @@ def methodology_block(report: dict[str, Any]) -> str:
     )
 
 
+class SmokeReportError(ValueError):
+    """Raised when asked to publish a run that was flagged as a smoke check."""
+
+
+def _refuse_smoke_report(report: dict[str, Any]) -> None:
+    """Refuse to render a run that recorded itself as a smoke check.
+
+    ``--quick`` reduces the suite to three repetitions over eight accuracy samples, which
+    is enough to prove the harness runs and nowhere near enough to publish. Rendering one
+    would replace every figure in the README and ``docs/benchmarks.md`` with it, and the
+    CI check that re-renders and diffs would then agree with the degraded numbers - so the
+    guard that normally catches a hand-typed figure would certify a smoke test instead.
+    """
+    config = report.get("config") or {}
+    if not config.get("smoke"):
+        return
+    raise SmokeReportError(
+        f"refusing to render {report.get('run_id')!r}: it is a --quick smoke run "
+        f"({config.get('repetitions')} repetitions, {config.get('accuracy_samples')} "
+        "accuracy samples), not a measurement. Run `python benchmarks/run.py` without "
+        "--quick to produce a publishable report."
+    )
+
+
 def render(
     report_path: Path | str | None = None,
     *,
@@ -1219,6 +1244,7 @@ def render(
     report = load_report(report_path) if report_path else latest_report()
     if report is None:
         raise FileNotFoundError("no benchmark results found; run `python benchmarks/run.py` first")
+    _refuse_smoke_report(report)
 
     docs = Path(docs_path) if docs_path else REPO_ROOT / "docs" / "benchmarks.md"
     docs.parent.mkdir(parents=True, exist_ok=True)
@@ -1273,7 +1299,11 @@ def main(argv: list[str] | None = None) -> int:
         print(readme_table(report))
         return 0
 
-    docs, readme = render(args.report, docs_path=args.docs, readme_path=args.readme)
+    try:
+        docs, readme = render(args.report, docs_path=args.docs, readme_path=args.readme)
+    except SmokeReportError as exc:
+        print(exc, file=sys.stderr)
+        return 2
     print(f"wrote {docs}")
     if readme:
         print(f"updated {readme}")

@@ -49,6 +49,11 @@ out/
 /artifacts/
 /training/runs/*.png
 
+# `benchmarks/run.py --quick` smoke runs. Deliberately not committed and deliberately
+# not in benchmarks/results/ itself: the renderer publishes the newest report in that
+# directory, and a three-repetition run is not a result.
+/benchmarks/results/quick/
+
 # OS / editor
 .DS_Store
 Thumbs.db

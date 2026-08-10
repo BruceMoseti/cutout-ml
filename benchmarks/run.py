@@ -10,6 +10,13 @@
 The default suite is defined in :func:`default_cases` and is exactly what the
 committed ``benchmarks/results/*.json`` contains. Keeping the suite in code rather than
 in a config file means the reproduction command is a single argument-free invocation.
+
+``--quick`` is a smoke check, not a measurement: three repetitions over eight accuracy
+samples. It therefore writes to ``benchmarks/results/quick/`` instead of the archive and
+never rewrites the markdown. Both matter, because the renderer publishes whichever report
+is newest in the archive and CI enforces the docs against it - so without this a smoke
+run would silently become the project's headline numbers *and* pass the check that
+exists to catch exactly that.
 """
 
 from __future__ import annotations
@@ -34,6 +41,10 @@ from cutoutml.core.logging import configure_logging, get_logger  # noqa: E402
 from cutoutml.core.refine import RefineConfig  # noqa: E402
 
 log = get_logger("benchmarks.run")
+
+#: Where ``--quick`` writes. A subdirectory, because ``latest_report`` globs the archive
+#: non-recursively - the same mechanism that keeps ``experiments/`` out of the docs.
+QUICK_RESULTS_DIR = REPO_ROOT / "benchmarks" / "results" / "quick"
 
 
 def default_cases(
@@ -195,16 +206,34 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
-def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
-    configure_logging(fmt=args.log_format)
+def resolve_quick_run(args: argparse.Namespace) -> argparse.Namespace:
+    """Apply everything ``--quick`` implies, in place, and return the same namespace.
 
-    if args.quick:
-        args.warmup, args.repetitions, args.accuracy_samples = 1, 3, 8
-        # Inductor codegen costs tens of seconds per case regardless of how few
-        # repetitions follow it, which defeats the purpose of a smoke check.
-        args.no_compile = True
-        args.no_threads = True
+    Separated from :func:`main` so the two consequences that matter can be asserted
+    without running a suite: a smoke run is written outside the archive the renderer
+    reads, and it does not rewrite the markdown.
+    """
+    if not args.quick:
+        return args
+    args.warmup, args.repetitions, args.accuracy_samples = 1, 3, 8
+    # Inductor codegen costs tens of seconds per case regardless of how few repetitions
+    # follow it, which defeats the purpose of a smoke check.
+    args.no_compile = True
+    args.no_threads = True
+    # A smoke run must not be able to become the published result. It is kept out of the
+    # archive the renderer reads (the same reason `experiments/` is a subdirectory) and it
+    # does not rewrite the markdown, so `cutoutml benchmark --quick` proves the harness
+    # works without replacing every figure in the README with three repetitions over
+    # eight samples.
+    args.no_render = True
+    if args.output_dir is None:
+        args.output_dir = QUICK_RESULTS_DIR
+    return args
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = resolve_quick_run(build_parser().parse_args(argv))
+    configure_logging(fmt=args.log_format)
 
     config = BenchmarkConfig(
         warmup=args.warmup,
@@ -214,6 +243,7 @@ def main(argv: list[str] | None = None) -> int:
         dataset_split=args.dataset_split,
         threads=args.threads,
         refine=RefineConfig.off() if args.no_refine else RefineConfig.fast(),
+        smoke=args.quick,
     )
 
     dataset = None
@@ -258,6 +288,12 @@ def main(argv: list[str] | None = None) -> int:
     path = save_report(report, args.output_dir)
     print(f"\nwrote {path}")
     print(f"summary: {report['summary']}")
+    if args.quick:
+        print(
+            "\nthis was a --quick smoke run: it is marked as such in the JSON, was written "
+            f"to {path.parent} rather than the archive, and cannot be rendered into the "
+            "docs. Run without --quick to produce a publishable report."
+        )
 
     if not args.no_render:
         docs, readme = render(path)

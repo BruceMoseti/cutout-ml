@@ -13,21 +13,36 @@ catches the case where the harness stops telling it that.
 
 from __future__ import annotations
 
+import importlib.util
+import json
+from pathlib import Path
 from typing import Any
 
 import pytest
 
 from cutoutml.benchmarks.harness import latest_report
 from cutoutml.benchmarks.render_report import (
+    SmokeReportError,
     _contention_mark,
     _sweep_consistency_notes,
     _was_contended,
     main_table,
     methodology_block,
     readme_table,
+    render,
     render_benchmarks_doc,
     update_readme,
 )
+from cutoutml.core.config import REPO_ROOT, get_settings
+
+
+def load_run_module() -> Any:
+    """Import ``benchmarks/run.py``, which is a script rather than a package module."""
+    spec = importlib.util.spec_from_file_location("benchmarks_run", REPO_ROOT / "benchmarks/run.py")
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def case(
@@ -273,6 +288,59 @@ def test_the_shared_machine_limitation_is_listed_only_when_a_row_was_contended()
     busy = report_of(case(trustworthy=False, external_cores=7.5))
     busy["summary"] = {"cases_measured_under_contention": 1}
     assert "The machine was shared" in methodology_block(busy)
+
+
+# ------------------------------------------------------------ smoke-run guard
+
+
+def test_a_smoke_run_is_refused_rather_than_published(tmp_path):
+    """`--quick` is three repetitions over eight samples. Rendering one would replace every
+    published figure with it *and* satisfy the CI check that re-renders and diffs, so the
+    guard against hand-typed numbers would certify a smoke test."""
+    report = report_of(case())
+    report["config"] = {"repetitions": 3, "accuracy_samples": 8, "threads": 1, "smoke": True}
+    path = tmp_path / "20260101T000000Z-test.json"
+    path.write_text(json.dumps(report))
+
+    with pytest.raises(SmokeReportError) as caught:
+        render(path, docs_path=tmp_path / "benchmarks.md", readme_path=tmp_path / "README.md")
+
+    assert "smoke run" in str(caught.value)
+    # Refusing means writing nothing, not writing something and then complaining.
+    assert not (tmp_path / "benchmarks.md").exists()
+
+
+def test_a_report_without_the_smoke_flag_is_published_as_before(tmp_path):
+    """The committed reports predate the flag, so its absence must mean 'publishable'."""
+    report = report_of(case())
+    assert "smoke" not in report["config"]
+    path = tmp_path / "20260101T000000Z-test.json"
+    path.write_text(json.dumps(report))
+
+    docs, _ = render(path, docs_path=tmp_path / "benchmarks.md", readme_path=tmp_path / "none.md")
+
+    assert docs.is_file()
+
+
+def test_quick_keeps_its_report_out_of_the_archive_and_off_the_docs():
+    """The two halves of the fix, asserted against the argument parsing rather than by
+    running the suite: a smoke run is redirected out of the directory the renderer reads,
+    and it does not re-render."""
+    run = load_run_module()
+
+    args = run.build_parser().parse_args(["--quick"])
+    assert args.output_dir is None and not args.no_render
+
+    resolved = run.resolve_quick_run(args)
+
+    assert resolved.no_render is True
+    assert resolved.output_dir == run.QUICK_RESULTS_DIR
+    assert run.QUICK_RESULTS_DIR.parent == get_settings().benchmark_results_dir
+    # An explicit destination is still honoured; the default is what changes.
+    explicit = run.resolve_quick_run(
+        run.build_parser().parse_args(["--quick", "--output-dir", "x"])
+    )
+    assert explicit.output_dir == Path("x")
 
 
 def test_the_committed_report_still_renders():

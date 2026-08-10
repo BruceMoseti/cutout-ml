@@ -229,6 +229,12 @@ class BenchmarkConfig:
     gc_between_cases: bool = True
     #: Seconds spent sampling CPU contention before each case's timing loop.
     load_sample_seconds: float = 1.0
+    #: Marks a run as a smoke check rather than a measurement. ``--quick`` sets it along
+    #: with the reduced repetition and sample counts, and the report carries it so the
+    #: file is self-describing: :func:`cutoutml.benchmarks.render_report.render` refuses
+    #: to publish a report with this set. A three-repetition, eight-sample run is a test
+    #: that the harness works, and its numbers must not be able to reach the README.
+    smoke: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         d = dataclasses.asdict(self)
