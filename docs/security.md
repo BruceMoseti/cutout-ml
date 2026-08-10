@@ -16,8 +16,10 @@ model itself.
 
 ## Authentication
 
-**Passwords.** bcrypt with a per-hash salt at cost 12 (~250 ms per hash — high enough to
-matter, low enough for a login).
+**Passwords.** bcrypt with a per-hash salt at cost 12 — 216 ms per hash measured on the
+benchmark machine's CPU (the Xeon described in [benchmarks.md](benchmarks.md)), which is
+high enough to matter and low enough for a login. The figure is hardware-dependent; cost,
+not milliseconds, is what is pinned in the code.
 
 Two bcrypt details are handled explicitly because both are easy to get wrong:
 

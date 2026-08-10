@@ -190,14 +190,14 @@ differs by a runtime. One count now reaches both, and is read back *from the run
 than from the request. The suite then runs single-threaded, which looks perverse for a
 throughput project and is the most consequential measurement decision in it. The reason is
 that the same sweep was run on this box twice, once while a neighbouring job held all eight
-cores and once idle, and the two disagree about eight threads by a factor of 300:
+cores and once idle, and the two disagree about eight threads by a factor of 298:
 
 | | 1 thread | 8 threads | |
 |---|---|---|---|
-| PyTorch eager, 7.9 of 8 cores busy elsewhere | 20.5 ms | 2202.3 ms | **108× slower** |
+| PyTorch eager, 7.8–8.0 of 8 cores busy elsewhere | 20.5 ms | 2202.3 ms | **108× slower** |
 | PyTorch eager, idle machine | 20.7 ms | 7.4 ms | 2.8× faster |
-| ONNX Runtime, 7.9 of 8 cores busy elsewhere | 16.4 ms | 10.1 ms | 1.6× faster |
-| ONNX Runtime, idle machine | 16.4 ms | 4.6 ms | 3.6× faster |
+| ONNX Runtime, 7.2–7.8 of 8 cores busy elsewhere | 16.4 ms | 10.1 ms | 1.6× faster |
+| ONNX Runtime, idle machine | 16.4 ms | 4.6 ms | 3.5× faster |
 
 Intra-op parallelism only pays if the worker threads are resident on cores, and a U-Net
 forward pass is ~100 parallel regions each ending in a barrier that cannot retire until
@@ -241,8 +241,8 @@ ONNX `Conv` nodes with the module's convolutions positionally, recovering the Py
 execution order by running the module under forward hooks rather than trusting construction
 order, then verifies the result three ways: pairwise shapes, the seven convolutions that
 kept their names landing where their names say, and **numerical parity against onnxruntime —
-1.4e-7 for the 44M model**, about three orders of magnitude finer than one 8-bit alpha
-level. Since the weights are not committed, that figure is not checkable from a clone unless
+1.4e-7 for the 44M model**, four orders of magnitude finer than one 8-bit alpha level
+(1/255 ≈ 3.9e-3). Since the weights are not committed, that figure is not checkable from a clone unless
 the conversion leaves a record behind, so it does:
 [`models/conversions/`](models/conversions/) holds the parity figure, the tolerance, both
 digests and the runtime versions for each converted checkpoint. The BatchNorms become exact
@@ -261,7 +261,10 @@ mismatched tensors and run inference on random weights with nothing but a log li
 **Preprocessing is part of the model.** U²-Net's reference pipeline divides each image by
 its own maximum intensity before normalising. That was skipped here on the reasonable-sounding
 grounds that it is a no-op for any image containing a saturated pixel — true of most
-photographs, false of 9 of 16 images in this eval set. Since preprocessing is not part of an
+photographs, false of 40 of the 64 test images in this eval set, the dimmest of which peaks
+at 155. Both counts are asserted in `tests/test_u2net_weights.py`, because the eval set is
+generated and a change to the generator would otherwise falsify this sentence silently.
+Since preprocessing is not part of an
 ONNX artefact, the ONNX registry entries carry the requirement explicitly, alongside the fact
 that those graphs bake in their own sigmoid; applying a second one costs several IoU points
 and raises no error.
@@ -457,7 +460,7 @@ Ordered by what I would do next, not by ambition:
    real.
 2. **Publish a multi-threaded figure from a machine that can promise to be idle.** Every
    latency row here is single-threaded, and the reason is that this box cannot make that
-   promise — the same eight-thread case has been measured 300× apart on it. A dedicated
+   promise — the same eight-thread case has been measured 298× apart on it. A dedicated
    machine would make the wide figure publishable, and would also close the 1.5× ordering
    gap that a shared box leaves in the cross-row precision. The harness already records
    everything needed to tell two such runs apart.

@@ -86,8 +86,8 @@ is recovered by running the module under forward hooks rather than by trusting c
 order), then proves the pairing three ways: pairwise shapes, the seven convolutions that
 kept their names landing where their names say, and numerical parity against onnxruntime.
 Measured parity is **1.4e-7** for the full model and **1.5e-6** for lite, against a 1e-4
-tolerance — roughly three orders of magnitude finer than one 8-bit alpha level, so the
-difference cannot survive quantisation to a PNG.
+tolerance — three to four orders of magnitude finer than one 8-bit alpha level
+(1/255 ≈ 3.9e-3), so the difference cannot survive quantisation to a PNG.
 
 Those two figures are not written down here from memory. Because the weights themselves are
 not committed, the conversion also writes a record that is:

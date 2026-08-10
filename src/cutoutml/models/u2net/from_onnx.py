@@ -41,8 +41,10 @@ hard failure rather than a warning:
 3. **Numerical parity.** The assembled module is run against onnxruntime on the same
    input and the maximum absolute difference is required to be small. This is the check
    that actually matters: it can only pass if every one of the 119 tensors landed in the
-   right place. Observed agreement is ~1.5e-6, which is roughly 400x finer than one
-   8-bit alpha level (1/255), so the difference cannot survive quantisation to a PNG.
+   right place. Observed agreement is 1.5e-6 for the lite variant and 1.4e-7 for the full
+   one, three to four orders of magnitude finer than one 8-bit alpha level (1/255 ~=
+   3.9e-3), so the difference cannot survive quantisation to a PNG. Both figures are
+   recorded per conversion in ``models/conversions/*.json``.
 
 The BatchNorm layers are set to the identity - ``weight=1``, ``bias=0``, ``mean=0`` and
 ``var = 1 - eps`` so that ``sqrt(var + eps)`` is exactly 1 - because the folded
@@ -70,8 +72,9 @@ from cutoutml.models.u2net.arch import U2Net, u2net_full, u2net_lite
 
 log = get_logger(__name__)
 
-#: One 8-bit alpha level is 1/255 ~= 3.9e-3. The default tolerance is two orders of
-#: magnitude tighter, so a graph that passes cannot differ by a visible amount.
+#: One 8-bit alpha level is 1/255 ~= 3.9e-3. The default tolerance is ~39x tighter than
+#: that, so a graph that passes cannot differ by a visible amount. Observed agreement is
+#: far below the tolerance again - see the module docstring.
 PARITY_TOLERANCE = 1e-4
 
 #: The convolutions that keep their upstream names because no BatchNorm follows them.
