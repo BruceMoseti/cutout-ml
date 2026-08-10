@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -36,7 +37,10 @@ log = get_logger("benchmarks.run")
 
 
 def default_cases(
-    *, include_batches: bool = True, include_compile: bool = True
+    *,
+    include_batches: bool = True,
+    include_compile: bool = True,
+    include_threads: bool = True,
 ) -> list[BenchmarkCase]:
     """The committed suite.
 
@@ -120,7 +124,33 @@ def default_cases(
                 model="cutoutnet-onnx", device="cpu", batch_size=8, label="cutoutnet-onnx-b8"
             ),
         ]
+    if include_threads:
+        cases += thread_scaling_cases()
     return cases
+
+
+def thread_scaling_cases(threads: Sequence[int] = (1, 2, 4, 8)) -> list[BenchmarkCase]:
+    """Intra-op thread scaling for one PyTorch model and one ONNX graph.
+
+    This exists because the suite's default of one thread is otherwise an unexplained
+    choice, and because the curve is the most interesting measurement on this machine:
+    PyTorch's scaling inverts under contention while ONNX Runtime's does not. Both
+    runtimes run the same weights at the same batch size, so the pair isolates thread
+    pool behaviour from everything else.
+    """
+    return [
+        BenchmarkCase(
+            model=model,
+            device="cpu",
+            threads=n,
+            label=f"{label}-t{n}",
+        )
+        for model, label in (
+            ("cutoutnet", "threadscale-eager"),
+            ("cutoutnet-onnx", "threadscale-onnx"),
+        )
+        for n in threads
+    ]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -132,9 +162,20 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--repetitions", type=int, default=20)
     p.add_argument("--accuracy-samples", type=int, default=64)
     p.add_argument("--resolution", type=int, default=256, help="eval dataset resolution")
-    p.add_argument("--torch-threads", type=int, default=0, help="0 = PyTorch default")
+    p.add_argument(
+        "--threads",
+        type=int,
+        default=1,
+        help=(
+            "intra-op threads for every runtime; 0 = each runtime's own default "
+            "(one per core). The default of 1 is deliberate - see BenchmarkConfig.threads"
+        ),
+    )
     p.add_argument("--quick", action="store_true", help="tiny run for smoke testing")
     p.add_argument("--no-batches", action="store_true", help="skip batch-scaling cases")
+    p.add_argument(
+        "--no-threads", action="store_true", help="skip the intra-op thread-scaling sweep"
+    )
     p.add_argument(
         "--no-compile",
         action="store_true",
@@ -159,6 +200,7 @@ def main(argv: list[str] | None = None) -> int:
         # Inductor codegen costs tens of seconds per case regardless of how few
         # repetitions follow it, which defeats the purpose of a smoke check.
         args.no_compile = True
+        args.no_threads = True
 
     config = BenchmarkConfig(
         warmup=args.warmup,
@@ -166,7 +208,7 @@ def main(argv: list[str] | None = None) -> int:
         accuracy_samples=args.accuracy_samples,
         dataset_resolution=(args.resolution, args.resolution),
         dataset_split=args.dataset_split,
-        torch_threads=args.torch_threads,
+        threads=args.threads,
         refine=RefineConfig.off() if args.no_refine else RefineConfig.fast(),
     )
 
@@ -188,7 +230,11 @@ def main(argv: list[str] | None = None) -> int:
         dataset_description = dataset.describe()
         log.info("using_real_dataset", family=family, samples=len(dataset))
 
-    cases = default_cases(include_batches=not args.no_batches, include_compile=not args.no_compile)
+    cases = default_cases(
+        include_batches=not args.no_batches,
+        include_compile=not args.no_compile,
+        include_threads=not args.no_threads,
+    )
     if args.models:
         wanted = set(args.models)
         cases = [c for c in cases if c.model in wanted or (c.label or "") in wanted]

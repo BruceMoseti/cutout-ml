@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import psutil
 import torch
 
 from cutoutml.core.imaging import LetterboxInfo
@@ -145,6 +146,18 @@ class OnnxAdapter(SegmentationModel):
         peak = float(np.asarray(image).max())
         return peak / 255.0 if peak > 0 else None
 
+    @property
+    def effective_intra_op_threads(self) -> int:
+        """The thread count the session really runs with.
+
+        ONNX Runtime treats ``0`` as "one thread per physical core", so reporting the
+        requested value would record 0 for the most common configuration and leave a
+        benchmark row with no thread count at all.
+        """
+        if self.intra_op_threads > 0:
+            return self.intra_op_threads
+        return psutil.cpu_count(logical=False) or psutil.cpu_count(logical=True) or 1
+
     def _load(self) -> None:
         try:
             import onnxruntime as ort
@@ -252,7 +265,8 @@ class OnnxAdapter(SegmentationModel):
                 "param_count is estimated from the fp32 graph size. "
                 f"Graph output: {self.output_activation}; intensity scaling: "
                 f"{self.intensity_scaling}; batch axis: "
-                f"{'fixed at ' + str(self.static_batch) if self.static_batch else 'dynamic'}."
+                f"{'fixed at ' + str(self.static_batch) if self.static_batch else 'dynamic'}; "
+                f"intra-op threads: {self.effective_intra_op_threads}."
             ),
             **{
                 **self._base_metadata_kwargs(),

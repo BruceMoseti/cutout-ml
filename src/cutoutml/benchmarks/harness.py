@@ -64,7 +64,7 @@ from cutoutml.models.base import (
     TorchSegmentationModel,
     WeightsUnavailableError,
 )
-from cutoutml.models.registry import get_model
+from cutoutml.models.registry import get_model, resolve_spec
 from cutoutml.models.torch_compile import CompileOutcome, compile_module, not_attempted
 
 log = get_logger(__name__)
@@ -88,6 +88,10 @@ class BenchmarkCase:
     #: failed compile is recorded rather than silently falling back to eager.
     compile: bool = False
     compile_mode: str = "default"
+    #: Intra-op threads for this case, overriding :attr:`BenchmarkConfig.threads`.
+    #: Only the thread-scaling sweep sets it; every other case inherits the run-wide
+    #: value so that a runtime comparison is not secretly also a thread comparison.
+    threads: int | None = None
     options: dict[str, Any] = dataclasses.field(default_factory=dict)
 
     @property
@@ -113,6 +117,10 @@ class LatencyStats:
     repetitions: int
     warmup: int
     batch_size: int
+    #: Intra-op threads the runtime was actually given. Recorded per case because CPU
+    #: latency is meaningless without it, and because a mismatched thread count between
+    #: two rows invalidates any comparison drawn between them.
+    threads: int
     p50_ms: float
     p95_ms: float
     p99_ms: float
@@ -195,7 +203,22 @@ class BenchmarkConfig:
     dataset_seed: int = 20240817
     dataset_split: str = "test"
     dataset_resolution: tuple[int, int] = (256, 256)
-    torch_threads: int = 0
+    #: Intra-op threads given to every runtime; ``0`` means "the runtime's own default",
+    #: which is one thread per core.
+    #:
+    #: The default is 1, which looks perverse for a throughput-oriented project and is
+    #: the single most important measurement decision in this harness. Intra-op
+    #: parallelism only pays off if the runtime's worker threads are actually resident
+    #: on cores. When they are not - because the machine has more runnable threads than
+    #: cores - every one of the ~100 parallel regions in a U-Net forward pass ends in a
+    #: barrier that waits for a descheduled thread, and the barriers dominate. Measured
+    #: on this 8-vCPU box while it carried other tenants: cutoutnet at 320x320 took
+    #: 46.7 ms with one thread and 2854 ms with eight, a 61x *penalty* for eight times
+    #: the threads. Single-threaded numbers contain no barriers, so they are the only
+    #: CPU latency figures that are reproducible on a shared machine, and they are
+    #: honest about per-core cost. Use ``--threads 0`` on a quiet, dedicated box, and
+    #: read ``thread_scaling_cases()`` for the scaling curve itself.
+    threads: int = 1
     refine: RefineConfig = dataclasses.field(default_factory=RefineConfig.fast)
     gc_between_cases: bool = True
     #: Seconds spent sampling CPU contention before each case's timing loop.
@@ -219,8 +242,8 @@ class BenchmarkHarness:
         dataset_description: dict[str, Any] | None = None,
     ) -> None:
         self.config = config or BenchmarkConfig()
-        if self.config.torch_threads > 0:
-            torch.set_num_threads(self.config.torch_threads)
+        self._default_torch_threads = torch.get_num_threads()
+        self._apply_threads(self.config.threads)
 
         if dataset is None:
             data_cfg = SyntheticConfig(resolution=self.config.dataset_resolution)
@@ -261,6 +284,7 @@ class BenchmarkHarness:
     def run_case(self, case: BenchmarkCase) -> CaseResult:
         """Load a model, measure latency then accuracy, and unload it."""
         log.info("benchmark_case_start", case=case.name)
+        self._apply_threads(self._case_threads(case))
         try:
             model = self._load_model(case)
         except WeightsUnavailableError as exc:
@@ -350,10 +374,44 @@ class BenchmarkHarness:
 
     # ----------------------------------------------------------------- internals
 
+    def _apply_threads(self, threads: int) -> int:
+        """Set PyTorch's intra-op width, returning the count now in force.
+
+        ``0`` restores the count PyTorch chose at import, so a sweep can return to the
+        default rather than pinning whatever value the previous case happened to use.
+        """
+        effective = threads if threads > 0 else self._default_torch_threads
+        torch.set_num_threads(effective)
+        return effective
+
+    def _case_threads(self, case: BenchmarkCase) -> int:
+        return case.threads if case.threads is not None else self.config.threads
+
+    def _effective_threads(self, model: SegmentationModel, case: BenchmarkCase) -> int:
+        """Ask the runtime that actually ran, rather than trusting the request.
+
+        A requested count can be ignored - ONNX Runtime resolves 0 to the core count -
+        and a row whose thread count is wrong is worse than one with none at all.
+        """
+        threads = getattr(model, "effective_intra_op_threads", None)
+        if isinstance(threads, int) and threads > 0:
+            return threads
+        if isinstance(model, TorchSegmentationModel):
+            return int(torch.get_num_threads())
+        # Pure numpy/OpenCV baselines: BLAS may still thread, but nothing in the
+        # harness controls it, so report the request rather than inventing a number.
+        return self._case_threads(case) or int(torch.get_num_threads())
+
     def _load_model(self, case: BenchmarkCase) -> SegmentationModel:
         overrides = dict(case.options)
         if case.resolution:
             overrides["input_size"] = case.resolution
+        # ONNX Runtime sizes its own thread pool at session creation and ignores
+        # torch.set_num_threads, so the count has to be handed to the adapter. Without
+        # this, a "PyTorch vs ONNX" row pair silently compares 1 thread against 8.
+        spec = resolve_spec(case.model)
+        if spec.runtime == "onnxruntime" and "intra_op_threads" not in overrides:
+            overrides["intra_op_threads"] = self._case_threads(case)
         return get_model(
             case.model,
             device=case.device,
@@ -428,6 +486,7 @@ class BenchmarkHarness:
             repetitions=len(timings),
             warmup=self.config.warmup,
             batch_size=case.batch_size,
+            threads=self._effective_threads(model, case),
             p50_ms=p50,
             p95_ms=_percentile(timings, 95),
             p99_ms=_percentile(timings, 99),
