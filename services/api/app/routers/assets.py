@@ -25,7 +25,7 @@ import json
 from typing import Annotated, Any
 
 from fastapi import APIRouter, File, Form, Query, Request, Response, UploadFile, status
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 
 from cutoutml.core.logging import get_logger
 from cutoutml.core.queues import select_queue
@@ -596,28 +596,42 @@ def process_asset(
     session.commit()
 
     _dispatch(job, session, request_id=getattr(request.state, "request_id", None))
-    session.commit()
 
     metrics.jobs_created.labels(job.kind, job.model_name, job.queue).inc()
+    # The worker may already have advanced this row (it certainly has when Celery runs
+    # eagerly), and the sessionmaker uses expire_on_commit=False, so the in-memory copy
+    # would otherwise report a status that was true only before dispatch.
+    session.refresh(job)
     return JobResponse.model_validate(job)
 
 
 def _dispatch(job: InferenceJob, session: SessionDep, *, request_id: str | None) -> None:
-    """Send the job to Celery, or leave it pending if dispatch fails.
+    """Send the job to Celery, or return it to ``pending`` if dispatch fails.
 
-    A dispatch failure must not lose the request. The row is already committed, so the
-    ``requeue_stuck`` maintenance task picks up anything left ``pending``; returning 202
-    with ``status: pending`` is honest, whereas a 500 would make the client resubmit and
-    (thanks to the idempotency key) get the same job anyway.
+    Ordering is the whole point of this function. The row is committed as ``queued``
+    *before* the id reaches the broker, because a worker can pick the job up and start
+    writing progress the instant ``apply_async`` publishes it - writing the status
+    afterwards would overwrite whatever the worker had already recorded, and against a
+    local Redis with a fast task that race is reliable rather than theoretical. The task
+    id is then stored with a targeted UPDATE for the same reason: it must not carry a
+    stale ``status`` along with it.
 
-    The recorded message deliberately does *not* name a cause. A broker outage is the
-    expected reason, but a misconfigured Celery app raises here too, and a message that
-    asserts "broker unreachable" sends whoever is debugging it to look at Redis while the
+    A dispatch failure must not lose the request. The row goes back to ``pending`` so the
+    ``requeue_stuck`` maintenance task collects it, and the client still gets its 202 -
+    a 500 would only prompt a resubmit that the idempotency key answers with this same
+    job. The recorded message deliberately does not name a cause: a broker outage is the
+    expected one, but a misconfigured Celery app raises here too, and a message asserting
+    "broker unreachable" sends whoever is debugging it to look at Redis while the
     exception in the log says otherwise.
     """
     from services.inference.app.tasks import process_image, process_video
 
     task = process_video if job.kind == AssetKind.VIDEO.value else process_image
+
+    job.status = JobStatus.QUEUED.value
+    job.queued_at = dt.datetime.now(dt.UTC)
+    session.commit()
+
     try:
         async_result = task.apply_async(
             kwargs={"job_id": str(job.id), "request_id": request_id}, queue=job.queue
@@ -630,16 +644,24 @@ def _dispatch(job: InferenceJob, session: SessionDep, *, request_id: str | None)
             error_type=type(exc).__name__,
             error=str(exc),
         )
-        job.progress_message = (
-            "accepted but not yet dispatched to a worker; a maintenance pass will retry it"
+        session.execute(
+            update(InferenceJob)
+            .where(InferenceJob.id == job.id, InferenceJob.status == JobStatus.QUEUED.value)
+            .values(
+                status=JobStatus.PENDING.value,
+                queued_at=None,
+                progress_message=(
+                    "accepted but not yet dispatched to a worker; a maintenance pass will retry it"
+                ),
+            )
         )
-        session.flush()
+        session.commit()
         return
 
-    job.celery_task_id = async_result.id
-    job.status = JobStatus.QUEUED.value
-    job.queued_at = dt.datetime.now(dt.UTC)
-    session.flush()
+    session.execute(
+        update(InferenceJob).where(InferenceJob.id == job.id).values(celery_task_id=async_result.id)
+    )
+    session.commit()
     log.info("job_queued", job_id=str(job.id), queue=job.queue, task_id=async_result.id)
 
 
