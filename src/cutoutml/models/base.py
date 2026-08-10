@@ -27,6 +27,8 @@ from __future__ import annotations
 
 import abc
 import dataclasses
+import functools
+import hashlib
 import time
 from collections.abc import Sequence
 from pathlib import Path
@@ -47,6 +49,41 @@ from cutoutml.core.imaging import LetterboxInfo, letterbox, normalize, unletterb
 from cutoutml.core.logging import get_logger
 
 log = get_logger(__name__)
+
+
+@functools.lru_cache(maxsize=32)
+def _digest(path: str, size: int, mtime_ns: int) -> str:  # noqa: ARG001 - cache-key only
+    """Hash a file, memoised on its identity rather than its name alone.
+
+    ``size`` and ``mtime_ns`` are part of the key so that retraining a checkpoint in place
+    invalidates the entry instead of serving the previous run's digest - which is exactly
+    the case where a stale hash would be most misleading. Neither is read in the body.
+    """
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def weights_digest(path: Path | str | None) -> str | None:
+    """SHA-256 of a weights file, or ``None`` if there is nothing to hash.
+
+    Recorded in every benchmark row. Without it a published accuracy figure names a
+    checkpoint path, and a path is not evidence: the file behind it changes with each
+    training run, so a reader cannot tell whether the number in the docs came from the
+    weights currently on disk.
+    """
+    if path is None:
+        return None
+    file = Path(path)
+    try:
+        stat = file.stat()
+    except OSError:
+        return None
+    if not file.is_file():
+        return None
+    return _digest(str(file.resolve()), stat.st_size, stat.st_mtime_ns)
 
 
 class WeightsUnavailableError(RuntimeError):
@@ -261,6 +298,7 @@ class SegmentationModel(abc.ABC):
             "device": str(self.device),
             "device_name": info.name,
             "weights_path": str(self.weights_path) if self.weights_path else None,
+            "weights_sha256": weights_digest(self.weights_path),
             "randomly_initialized": self.random_init,
             "accuracy_valid": not self.random_init,
         }
@@ -383,7 +421,6 @@ class TorchSegmentationModel(SegmentationModel):
             runtime="pytorch",
             license=spec.license if spec else "unknown",
             source=spec.source if spec else "",
-            weights_sha256=None,
             notes=(
                 "RANDOM WEIGHTS - latency measurements are valid, accuracy is not."
                 if self.random_init

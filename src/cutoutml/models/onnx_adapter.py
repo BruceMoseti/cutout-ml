@@ -27,7 +27,7 @@ import torch
 
 from cutoutml.core.imaging import LetterboxInfo
 from cutoutml.core.logging import get_logger
-from cutoutml.models.base import ModelMetadata, SegmentationModel
+from cutoutml.models.base import ModelMetadata, SegmentationModel, weights_digest
 
 log = get_logger(__name__)
 
@@ -190,13 +190,15 @@ class OnnxAdapter(SegmentationModel):
             runtime=f"onnxruntime:{active}",
             license=spec.license if spec else "depends on source model",
             source=spec.source if spec else str(self.onnx_path),
-            weights_sha256=None,
             notes=(
                 f"Execution providers active: {', '.join(self.active_providers) or 'none'}. "
                 "param_count is estimated from the fp32 graph size."
             ),
             **{
                 **self._base_metadata_kwargs(),
+                # The graph *is* the weights here, so both fields have to point at it
+                # rather than at the .pt this adapter never loads.
                 "weights_path": str(self.onnx_path),
+                "weights_sha256": weights_digest(self.onnx_path),
             },
         )

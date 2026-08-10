@@ -44,7 +44,7 @@ import numpy as np
 import torch
 
 from cutoutml.core.logging import get_logger
-from cutoutml.models.base import ModelMetadata, SegmentationModel
+from cutoutml.models.base import ModelMetadata, SegmentationModel, weights_digest
 
 log = get_logger(__name__)
 
@@ -333,7 +333,6 @@ class TensorRTAdapter(SegmentationModel):
             runtime=f"tensorrt:{tensorrt_version() or 'unavailable'}",
             license=spec.license if spec else "depends on source model",
             source=spec.source if spec else str(self.onnx_path or self.engine_path),
-            weights_sha256=None,
             notes=(
                 "TensorRT engines are hardware- and version-specific: rebuild on the "
                 "target GPU. Shapes outside the built optimisation profile will fail."
@@ -341,5 +340,6 @@ class TensorRTAdapter(SegmentationModel):
             **{
                 **self._base_metadata_kwargs(),
                 "weights_path": str(self.engine_path) if self.engine_path else None,
+                "weights_sha256": weights_digest(self.engine_path),
             },
         )

@@ -240,7 +240,6 @@ class ClassicalBaseline(SegmentationModel):
             runtime="opencv+numpy",
             license="baseline implementation, MIT (algorithms: Hou & Zhang 2007; Rother et al. 2004)",
             source="https://doi.org/10.1109/CVPR.2007.383267",
-            weights_sha256=None,
             notes=(
                 "Zero-training baseline. Runs on CPU regardless of the requested "
                 "device; reported device is the requested one for interface parity."
@@ -306,7 +305,6 @@ class TrivialBaseline(SegmentationModel):
             runtime="numpy",
             license="MIT (this implementation)",
             source="metric calibration reference, not a real method",
-            weights_sha256=None,
             notes=(
                 "Content-blind reference. Any model that does not clearly beat this "
                 "row has learned nothing about the images."

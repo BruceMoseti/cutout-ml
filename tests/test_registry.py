@@ -19,6 +19,7 @@ than mocked: a mocked GPU test proves nothing about a GPU.
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 from typing import Any
 
@@ -420,6 +421,37 @@ def test_metadata_is_complete_and_serialisable(contract_model):
     payload = meta.as_dict()
     assert isinstance(payload["input_size"], list)
     assert payload["accuracy_valid"] is not None
+
+
+def test_metadata_records_the_digest_of_the_weights_actually_loaded(tmp_path: Path):
+    """A published accuracy figure that names only a checkpoint *path* is not evidence:
+    the file behind that path changes with every training run."""
+    from cutoutml.models.base import weights_digest
+
+    model = get_model("cutoutnet", device="cpu")
+    meta = model.metadata()
+    assert meta.weights_path is not None
+    expected = hashlib.sha256(Path(meta.weights_path).read_bytes()).hexdigest()
+    assert meta.weights_sha256 == expected
+
+    # Rewriting a file in place must not serve the previous digest from the cache.
+    checkpoint = tmp_path / "w.pt"
+    checkpoint.write_bytes(b"first")
+    first = weights_digest(checkpoint)
+    checkpoint.write_bytes(b"second")
+    assert weights_digest(checkpoint) != first
+
+
+def test_weightless_models_report_no_digest_rather_than_a_hash_of_nothing():
+    assert get_model("trivial-center", device="cpu").metadata().weights_sha256 is None
+
+
+def test_the_onnx_adapter_hashes_the_graph_it_runs_not_the_checkpoint_it_ignores():
+    model = get_model("cutoutnet-onnx", device="cpu")
+    meta = model.metadata()
+    assert meta.weights_path is not None
+    assert meta.weights_path.endswith(".onnx")
+    assert meta.weights_sha256 == hashlib.sha256(Path(meta.weights_path).read_bytes()).hexdigest()
 
 
 def test_load_is_idempotent_and_records_cold_start_time(contract_model):
