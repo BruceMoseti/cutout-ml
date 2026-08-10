@@ -8,20 +8,35 @@ a later one is more flattering is how benchmark suites start lying.
 Runs are not interchangeable. A file records the thread count, the git commit, the
 hardware and the per-case machine load precisely so that two files can be compared
 without guessing, and comparing across runs without reading those fields will produce
-nonsense. The runs below differ by up to 298x on the same model, the same weights and even
+nonsense. The runs below differ by up to 300x on the same model, the same weights and even
 the same thread count - `threadscale-eager-t8` reads 2202.3 ms in the run taken under full
-load and 7.4 ms in the current, idle one - for reasons that have nothing to do with the
+load and 7.3 ms in the current, idle one - for reasons that have nothing to do with the
 model.
 
 | Run id | Threads | Cases | Wall clock | Commit | Peak external load | Status |
 |---|---|---|---|---|---|---|
-| `20260810T071109Z-e0c34c05` | 1, pinned | 28 | 299 s | `33263e89` (clean) | 0.04 / 8 cores | **current** - rendered into the docs |
+| `20260810T155155Z-7fc50b03` | 1, pinned | 28 | 296 s | `ba1bbda1` (clean) | 0.05 / 8 cores | **current** - rendered into the docs |
+| `20260810T071109Z-e0c34c05` | 1, pinned | 28 | 299 s | `33263e89` (clean) | 0.04 / 8 cores | superseded, see below |
 | `20260810T054025Z-1385dc69` | 1, pinned | 28 | 304 s | `545d0b78` (clean) | 1.9 / 8 cores | superseded, see below |
 | `20260810T050712Z-6314f8b1` | 1, pinned | 28 | 411 s | `57f368fe` (clean) | 8.0 / 8 cores | superseded, see below |
 | `20260810T043848Z-8ff4b22d` | not pinned (8) | 20 | 2316 s | `008dc139` (dirty) | 8.0 / 8 cores | superseded, see below |
 
-The current run is the first with no contended case at all: every one of its 27 timed cases
-sampled an idle machine, so no figure in `docs/benchmarks.md` carries a `†`.
+Both of the top two runs sampled an idle machine for every one of their 27 timed cases, so no
+figure in `docs/benchmarks.md` carries a `†`.
+
+## Why `20260810T071109Z` is superseded
+
+Its two GrabCut rows were scored before the harness reset OpenCV's RNG, so they record what a
+20-repetition timing loop happened to leave the colour model seeded with rather than a property
+of the method: `classical-grabcut` 0.6614097183795684 and `classical-saliency+grabcut`
+0.1570489905397835, against 0.6503116870476875 and 0.1573561770461982 now. Nothing else moved.
+Every learned row, both trivial baselines and `classical-saliency` are bit-identical between the
+two files, which is the useful part of the comparison: it isolates the change to the two rows
+that draw from that RNG, and shows the reset did not disturb anything that does not.
+
+The latency columns differ as any two runs do. They were taken minutes apart on the same idle
+host and agree closely - `cutoutnet` 31.4 ms against 31.3 ms - which is roughly the floor on how
+well a timing figure can be expected to repeat here.
 
 ## Why `20260810T054025Z` is superseded
 
@@ -45,8 +60,8 @@ which is honest but leaves no unqualified timing in the table.
 
 It is nonetheless the most informative of the superseded files, because it is the same
 sweep as the current run under the opposite conditions. Its single-thread rows agree with
-the current run's to within 1% (`threadscale-eager-t1`: 20.5 ms against 20.7 ms) while its
-eight-thread PyTorch row is 298x slower (2202.3 ms against 7.4 ms). That pair is the
+the current run's to within 4% (`threadscale-eager-t1`: 20.5 ms against 19.8 ms) while its
+eight-thread PyTorch row is 300x slower (2202.3 ms against 7.3 ms). That pair is the
 evidence behind the suite's single-threaded default, and it is why this file is kept rather
 than deleted for being unflattering.
 
@@ -60,7 +75,7 @@ It was measured before the harness controlled intra-op threads, so PyTorch was g
 thread per core on a machine whose one-minute load average ranged from 11.5 to 25.2 across
 the run - on 8 cores - with external demand at 7.99 of 8 while the timings were taken. Its
 PyTorch rows are consequently dominated by barrier waits: `cutoutnet` reads 2417.9 ms
-there against 31.4 ms in the current run, and its ONNX rows are not comparable to its
+there against 31.3 ms in the current run, and its ONNX rows are not comparable to its
 PyTorch rows at all, because ONNX Runtime sized its own pool independently. The
 `Thread scaling` section of `docs/benchmarks.md` measures that effect directly.
 
@@ -118,14 +133,15 @@ repeat runs to look like a real difference. Runs archived here from before that 
 older values, which is why a row can differ from the current one without anything having
 regressed. `tests/test_classical_baseline.py` fails if the reset is removed.
 
-**One exception, and it is a real caveat on the table.** The `u2net.pt` and `u2netp.pt`
-digests in the current run (`46c41386...` and `8a1241a9...`) were produced by a converter
-that embedded a conversion timestamp in the checkpoint, so they identify a conversion rather
-than a set of weights. The timestamp now lives in `models/conversions/*.json` instead, and
-re-running `make weights-pretrained` today produces `26a059bb...` and `def963cd...` from the
-identical ONNX graphs - same `source_sha256`, same parity, same tensors, different file
-digest. So for those two rows only, a digest mismatch against a future run does *not* imply
-different weights; compare `source_sha256` in the conversion record instead. Every other row
-in the table is a checkpoint trained in-repo and is unaffected. The two figures will line up
-again the next time the suite is run on a quiet machine, which has not happened since the
-converter changed.
+**One exception, now closed, and worth keeping because of what it demonstrates.** The
+`u2net.pt` and `u2netp.pt` digests in the archived runs up to `20260810T071109Z`
+(`46c41386...` and `8a1241a9...`) came from a converter that embedded a conversion timestamp
+in the checkpoint, so they identified a conversion rather than a set of weights. The timestamp
+moved into `models/conversions/*.json`, and the current run measures the re-derived files:
+`26a059bb...` and `def963cd...`, which is what `make weights-pretrained` produces today.
+
+Their IoU did not move by a digit across that change - `u2net-pretrained` reads
+0.6974183221552501 and `u2netp-pretrained` 0.6379981146382179 in both the old and the current
+run - which is the evidence that only the file bytes ever differed. Comparing those two rows
+across the boundary therefore means comparing `source_sha256` in the conversion record rather
+than the file digest. Every other row is a checkpoint trained in-repo and was never affected.
