@@ -480,22 +480,24 @@ def test_s3_stream_upload_delegates_to_boto3_multipart(s3):
 # ---------------------------------------------------------------------- factory
 
 
-def test_the_factory_builds_the_configured_backend(tmp_path: Path, settings):
-    storage = build_storage(settings)
+def test_the_factory_builds_the_configured_backend(isolated_settings):
+    storage = build_storage(isolated_settings)
     assert isinstance(storage, LocalStorage)
     assert storage.backend == "local"
+    assert storage.root == isolated_settings.storage_root.resolve()
 
 
-def test_the_factory_rejects_an_unknown_backend(settings):
+def test_the_factory_rejects_an_unknown_backend(isolated_settings):
     with pytest.raises(ValueError, match="unknown storage backend"):
-        build_storage(settings.model_copy(update={"storage_backend": "gopher"}))
+        build_storage(isolated_settings.model_copy(update={"storage_backend": "gopher"}))
 
 
-def test_get_storage_is_cached_and_resettable(settings):
+def test_get_storage_is_cached_and_resettable(isolated_settings):
     """The API resolves storage per request, so it has to be cheap; tests repoint
     the root, so the cache has to be clearable."""
-    assert get_storage() is get_storage()
+    reset_storage_cache()
     first = get_storage()
+    assert get_storage() is first
     reset_storage_cache()
     assert get_storage() is not first
 

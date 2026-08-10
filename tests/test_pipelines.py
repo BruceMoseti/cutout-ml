@@ -16,11 +16,11 @@ from __future__ import annotations
 import shutil
 import zipfile
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
 
-from conftest import decode_rgba
 from cutoutml.core.refine import RefineConfig
 from cutoutml.pipelines.ffmpeg import (
     ALPHA_CONTAINERS,
@@ -52,14 +52,56 @@ ffmpeg_required = pytest.mark.skipif(
 )
 
 
-@pytest.fixture(scope="module")
-def pipeline(trivial_model) -> ImagePipeline:
-    return ImagePipeline(trivial_model)
+def decode_rgba(data: bytes) -> np.ndarray:
+    """Decode to ``(H, W, 4)``.
+
+    ``cutoutml.core.imaging.decode_image`` deliberately flattens to RGB, so
+    asserting that an output really carries transparency needs its own decoder.
+    """
+    import io
+
+    from PIL import Image
+
+    with Image.open(io.BytesIO(data)) as img:
+        return np.array(img.convert("RGBA"))
+
+
+def make_png(width: int, height: int, *, seed: int = 7) -> bytes:
+    """A decodable PNG of a given size: a bright blob on a dark field.
+
+    Deterministic, so the content hashes these tests assert on are stable.
+    """
+    from cutoutml.core.imaging import encode_image
+
+    rng = np.random.default_rng(seed)
+    image = rng.integers(10, 45, size=(height, width, 3)).astype(np.uint8)
+    cy, cx = height // 2, width // 2
+    ry, rx = max(1, height // 4), max(1, width // 4)
+    image[cy - ry : cy + ry, cx - rx : cx + rx] = (240, 210, 60)
+    return encode_image(image, "png")
 
 
 @pytest.fixture(scope="module")
-def video_pipeline(trivial_model) -> VideoPipeline:
-    return VideoPipeline(trivial_model)
+def model() -> Any:
+    """The content-blind centred-ellipse baseline.
+
+    The pipelines are what is under test here, not the network: a fixed mask keeps
+    these assertions about plumbing (shapes, output kinds, batching, timings)
+    instead of about model quality, and it loads instantly.
+    """
+    from cutoutml.models.registry import get_model
+
+    return get_model("trivial-center", device="cpu")
+
+
+@pytest.fixture(scope="module")
+def pipeline(model: Any) -> ImagePipeline:
+    return ImagePipeline(model)
+
+
+@pytest.fixture(scope="module")
+def video_pipeline(model: Any) -> VideoPipeline:
+    return VideoPipeline(model)
 
 
 @pytest.fixture(scope="module")
@@ -74,7 +116,7 @@ def clip(tmp_path_factory: pytest.TempPathFactory) -> Path:
 # =========================================================== image pipeline
 
 
-def test_image_pipeline_loads_an_unloaded_model(trivial_model):
+def test_image_pipeline_loads_an_unloaded_model():
     """Callers should not have to remember to load; the pipeline owns the lifecycle."""
     from cutoutml.models.registry import get_model
 
@@ -84,14 +126,14 @@ def test_image_pipeline_loads_an_unloaded_model(trivial_model):
     assert model.is_loaded is True
 
 
-def test_process_bytes_returns_the_requested_outputs_only(pipeline, make_png):
+def test_process_bytes_returns_the_requested_outputs_only(pipeline):
     """Encoding a 4000px PNG is not free; a caller who wants a mask should not pay
     for a transparent PNG as well."""
     result = pipeline.process_bytes(make_png(64, 48), ImageRequest(outputs=("mask_png",)))
     assert set(result.outputs) == {"mask_png"}
 
 
-def test_process_bytes_produces_a_transparent_png_at_the_original_size(pipeline, make_png):
+def test_process_bytes_produces_a_transparent_png_at_the_original_size(pipeline):
     result = pipeline.process_bytes(make_png(70, 50))
 
     assert result.width == 70
@@ -102,7 +144,7 @@ def test_process_bytes_produces_a_transparent_png_at_the_original_size(pipeline,
     assert rgba[:, :, 3].min() < 128 < rgba[:, :, 3].max()
 
 
-def test_process_bytes_records_the_content_hash_for_idempotency(pipeline, make_png):
+def test_process_bytes_records_the_content_hash_for_idempotency(pipeline):
     import hashlib
 
     data = make_png(32, 32)
@@ -110,7 +152,7 @@ def test_process_bytes_records_the_content_hash_for_idempotency(pipeline, make_p
     assert result.content_sha256 == hashlib.sha256(data).hexdigest()
 
 
-def test_timings_cover_every_stage_and_decode_is_only_set_for_bytes(pipeline, make_png):
+def test_timings_cover_every_stage_and_decode_is_only_set_for_bytes(pipeline):
     """The stage breakdown in docs/benchmarks.md is built from these keys."""
     from_bytes = pipeline.process_bytes(make_png(32, 32))
     assert set(from_bytes.timings_ms) == {
@@ -190,7 +232,7 @@ def test_background_composite_without_a_background_image_is_rejected(pipeline):
         pipeline.process_array(np.zeros((32, 32, 3), dtype=np.uint8), request)
 
 
-def test_a_pixel_budget_protects_against_a_decompression_bomb(pipeline, make_png):
+def test_a_pixel_budget_protects_against_a_decompression_bomb(pipeline):
     with pytest.raises(ValueError, match="pixel"):
         pipeline.process_bytes(make_png(64, 64), ImageRequest(max_pixels=16))
 
@@ -217,7 +259,7 @@ def test_alpha_batch_matches_alpha_only(pipeline):
         np.testing.assert_allclose(got, pipeline.alpha_only(image), atol=1e-5)
 
 
-def test_image_result_summary_is_json_safe(pipeline, make_png):
+def test_image_result_summary_is_json_safe(pipeline):
     summary = pipeline.process_bytes(make_png(32, 32)).summary()
     assert isinstance(summary["outputs"]["mask_png"], int)
     assert isinstance(summary["timings_ms"]["inference"], float)
