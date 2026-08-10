@@ -33,9 +33,21 @@ Every design decision that was expensive to make is written down in
 ## Benchmarks
 
 All numbers below were measured by `benchmarks/run.py` on the machine described in the
-table. **There is no GPU on that machine, so every figure is CPU-only** and is labelled as
-such. TensorRT and CUDA rows are absent rather than estimated — see
-[docs/benchmarks.md](docs/benchmarks.md) for what was and was not measured.
+table. Three caveats, stated before the numbers rather than after them:
+
+- **There is no GPU on that machine, so every figure is CPU-only.** TensorRT and CUDA rows
+  are absent rather than estimated.
+- **Rows marked `†` were timed while another workload held the CPU.** The harness measures
+  external CPU demand per case, so this is evidence rather than a disclaimer; those
+  latencies are upper bounds on this hardware's cost. Accuracy is deterministic in the
+  weights and the eval set and is unaffected — so the accuracy columns carry no caveat.
+- **The eval set is synthetic, and the pretrained models were trained on photographs.**
+  U²-Net therefore scores *below* a 1.1M-parameter model trained in-repo on the eval set's
+  own distribution. That is a domain-shift measurement, not a quality ranking, and it is
+  the most useful thing in the table: it is what the synthetic eval set costs.
+
+See [docs/benchmarks.md](docs/benchmarks.md) for the full methodology, the per-case load
+table and exactly what was and was not measured.
 
 <!-- BENCHMARKS:BEGIN -->
 Generated from the latest run in `benchmarks/results/`. Regenerate with `make bench`, or
@@ -130,11 +142,44 @@ impossibly fast numbers. The code path is identical on CPU, where it is a no-op.
 number to read first: if it is large relative to p50, the machine was not quiet and nothing
 else in the row should be trusted.
 
-**Random weights can never produce an accuracy number.** Architectures whose pretrained
-checkpoints are unreachable here are benchmarked for latency with random initialisation and
-marked `accuracy_valid=false`, rendering as `n/a` with a footnote. A latency-only row cannot
-be misread as an accuracy claim, and `random_init` is refused for any model that does not
-explicitly opt in — so it is unreachable from an API request.
+**Random weights can never produce an accuracy number.** An architecture with no loadable
+checkpoint is benchmarked for latency with random initialisation and marked
+`accuracy_valid=false`, rendering as `n/a` with a footnote. A latency-only row cannot be
+misread as an accuracy claim, and `random_init` is refused for any model that does not
+explicitly opt in — so it is unreachable from an API request. Only BiRefNet is in that
+position now, and for a structural reason rather than a network one: its published weights
+target a Swin backbone whose shapes this reimplementation cannot load.
+
+**The published U²-Net weights were recovered from a BatchNorm-folded ONNX graph, and the
+recovery is proved rather than asserted.** The authors' Apache-2.0 checkpoints live on
+Google Drive and HuggingFace, and HuggingFace is blocked here; what is reachable is an ONNX
+export of the same weights. It was exported with constant folding on, so every
+`Conv → BatchNorm` pair has collapsed into one biased convolution and the parameter names of
+112 of the 119 convolutions are gone — they appear as numeric temporaries. `from_onnx` pairs
+ONNX `Conv` nodes with the module's convolutions positionally, recovering the PyTorch
+execution order by running the module under forward hooks rather than trusting construction
+order, then verifies the result three ways: pairwise shapes, the seven convolutions that
+kept their names landing where their names say, and **numerical parity against onnxruntime —
+1.4e-7 for the 44M model**, about three orders of magnitude finer than one 8-bit alpha
+level. The BatchNorms become exact identities, which makes the checkpoint equivalent in
+`eval()` and unusable for fine-tuning; that limitation is recorded inside the file.
+
+**That conversion found a bug no test could have.** It refused to convert, because the full
+U²-Net's decoder widths had been derived from the encoder table instead of transcribed from
+the paper — so the architecture was not shape-compatible with the official checkpoint that
+three docstrings claimed it was. The failure would have been silent in three separate ways:
+the `lite` variant is uniformly 64 wide so both readings coincide there, a from-scratch
+training run learns whatever shapes it is given, and the adapter loads with `strict=False`
+to tolerate upstream key renaming — so loading the real checkpoint would have skipped the
+mismatched tensors and run inference on random weights with nothing but a log line.
+
+**Preprocessing is part of the model.** U²-Net's reference pipeline divides each image by
+its own maximum intensity before normalising. That was skipped here on the reasonable-sounding
+grounds that it is a no-op for any image containing a saturated pixel — true of most
+photographs, false of 9 of 16 images in this eval set. Since preprocessing is not part of an
+ONNX artefact, the ONNX registry entries carry the requirement explicitly, alongside the fact
+that those graphs bake in their own sigmoid; applying a second one costs several IoU points
+and raises no error.
 
 **Calibration rows are mandatory.** `trivial-ones` predicts foreground everywhere and
 `trivial-center` draws a fixed ellipse. IoU is only interpretable against what predicting
@@ -340,13 +385,25 @@ Ordered by what I would do next, not by ambition:
 
 ## Licence
 
-MIT — see [LICENSE](LICENSE). Every checkpoint in this repository was trained here on data
-generated here, with no pretrained initialisation anywhere, so the weights are MIT too —
-which is the part most background removers cannot say, because a research-use dataset
-carries its restriction into whatever is trained on it.
+MIT — see [LICENSE](LICENSE). No weights are committed here at all, and the ones this
+project produces or fetches fall into two clearly separated groups:
 
-Model architectures are attributed individually in [docs/models.md](docs/models.md), and
-the full analysis — including the one LGPL dependency and why ffmpeg's GPL does not
-propagate — is in [docs/licensing.md](docs/licensing.md). U²-Net is Apache-2.0 upstream,
-and some third-party BiRefNet checkpoints are non-commercial, so check before using any
-weights you did not train.
+- **Trained here** (`cutoutnet-*`, `u2net-lite`): trained on data generated here, with no
+  pretrained initialisation anywhere, so the weights are MIT. That is the part most
+  background removers cannot say, because a research-use dataset carries its restriction
+  into whatever is trained on it.
+- **Published upstream** (`u2net`, `u2netp` and their ONNX pairs): the U²-Net authors'
+  Apache-2.0 weights, fetched on demand. Converting them from ONNX to a PyTorch checkpoint
+  does not change their licence, and each converted file carries its licence and source
+  digest inside it rather than in a sidecar that can be separated from the weights.
+
+Attribution, every downloadable weight file and its pinned SHA-256 are in
+[NOTICE](NOTICE); per-architecture detail is in [docs/models.md](docs/models.md), and the
+full project-level analysis — including the one LGPL dependency and why ffmpeg's GPL does
+not propagate — is in [docs/licensing.md](docs/licensing.md).
+
+One warning worth repeating outside a table: BiRefNet's *code* is MIT, but **some
+third-party fine-tuned BiRefNet checkpoints are released under non-commercial terms**. That
+applies to the file, not to the repository it came from. This project offers no BiRefNet
+download and its reimplementation cannot load those checkpoints anyway, so none can arrive
+here by accident.
