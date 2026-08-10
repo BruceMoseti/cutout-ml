@@ -63,6 +63,14 @@ _needs_trained_cutoutnet = pytest.mark.skipif(
     reason="cutoutnet.pt not present; run `make train`",
 )
 
+#: The ONNX graph is exported from that checkpoint, so it is absent for the same reason and
+#: gitignored for the same reason. Separate marker because the export is a second step: a
+#: machine can have the checkpoint and not the graph.
+_needs_exported_onnx = pytest.mark.skipif(
+    not weights_available(resolve_spec("cutoutnet-onnx")),
+    reason="cutoutnet-small.onnx not present; run `make export-onnx`",
+)
+
 
 @pytest.fixture
 def temp_spec() -> Any:
@@ -565,6 +573,7 @@ def test_a_checkpoint_trained_here_reports_no_source_digest():
     assert get_model("cutoutnet", device="cpu").metadata().weights_source_sha256 is None
 
 
+@_needs_exported_onnx
 def test_the_onnx_adapter_hashes_the_graph_it_runs_not_the_checkpoint_it_ignores():
     model = get_model("cutoutnet-onnx", device="cpu")
     meta = model.metadata()
