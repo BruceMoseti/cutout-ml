@@ -50,8 +50,29 @@ See [docs/benchmarks.md](docs/benchmarks.md) for the full methodology, the per-c
 table and exactly what was and was not measured.
 
 <!-- BENCHMARKS:BEGIN -->
-Generated from the latest run in `benchmarks/results/`. Regenerate with `make bench`, or
-re-render an existing run with `make render-bench`.
+| Model | Runtime | IoU | MAE | p50 latency | Throughput | Size |
+|---|---|---|---|---|---|---|
+| **trivial-ones** | numpy | 0.3590 | 0.6410 | 0.1 ms | 8419.3 img/s | n/a |
+| **trivial-center** | numpy | 0.4382 | 0.2644 | 0.5 ms | 1708.3 img/s | n/a |
+| **classical-saliency** | opencv+numpy | 0.1508 | 0.3772 | 0.9 ms | 1139.9 img/s | n/a |
+| **classical** | opencv+numpy | 0.6614 | 0.1455 | 274.3 ms | 3.6 img/s | n/a |
+| **classical-saliency-grabcut** | opencv+numpy | 0.1570 | 0.3693 | 411.9 ms | 2.5 img/s | n/a |
+| **cutoutnet-tiny** | pytorch-eager | 0.8241 | 0.0693 | 2028.8 ms | 0.5 img/s | 0.5 MiB |
+| **cutoutnet** | pytorch-eager | 0.8544 | 0.0573 | 2417.9 ms | 0.4 img/s | 4.5 MiB |
+| **cutoutnet-base** | pytorch-eager | 0.7252 | 0.1111 | 2921.2 ms | 0.3 img/s | 16.8 MiB |
+| **cutoutnet-onnx ONNX/CPU** | onnxruntime:CPUExecutionProvider | 0.8544 | 0.0573 | 19.9 ms | 46.3 img/s | 4.4 MiB |
+| **u2netp** | pytorch-eager | 0.6380 | 0.1388 | 3431.0 ms | 0.3 img/s | 4.6 MiB |
+| **u2netp-onnx ONNX/CPU** | onnxruntime:CPUExecutionProvider | 0.6380 | 0.1388 | 233.0 ms | 4.2 img/s | 4.4 MiB |
+| **u2net** | pytorch-eager | 0.6974 | 0.1221 | 4134.0 ms | 0.3 img/s | 168.2 MiB |
+| **u2net-onnx ONNX/CPU** | onnxruntime:CPUExecutionProvider | 0.6974 | 0.1221 | 427.8 ms | 2.2 img/s | 167.8 MiB |
+| **birefnet random-init** | pytorch-eager | n/a * | n/a * | 2384.4 ms | 0.4 img/s | 11.8 MiB |
+| **cutoutnet compiled** | pytorch-compile:inductor:default | 0.8544 | 0.0573 | 2159.3 ms | 0.4 img/s | 4.5 MiB |
+
+**Benchmark environment**: Intel(R) Xeon(R) Processor, 8 vCPU (8 physical cores), 47 GB RAM, no GPU (CPU-only). GPU: **none**. Every number above was measured by `benchmarks/run.py` on this machine - none are copied from a paper or estimated.
+
+`n/a *` = the network ran with **random weights** (pretrained checkpoints are not downloadable in this environment), so its latency is real but accuracy is not measurable. See [docs/benchmarks.md](docs/benchmarks.md).
+
+Source data: [`benchmarks/results/20260810T043848Z-8ff4b22d.json`](benchmarks/results/20260810T043848Z-8ff4b22d.json) - regenerate with `make bench`.
 <!-- BENCHMARKS:END -->
 
 Methodology, the full metric set, the per-stage timing breakdown and the reasons the

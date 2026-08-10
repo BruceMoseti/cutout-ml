@@ -143,6 +143,10 @@ def thread_scaling_cases(threads: Sequence[int] = (1, 2, 4, 8)) -> list[Benchmar
             model=model,
             device="cpu",
             threads=n,
+            # Accuracy is a function of the weights and the eval set, neither of which
+            # a thread count touches. Re-measuring it eight times would add minutes to
+            # reproduce figures already in the main table.
+            measure_accuracy=False,
             label=f"{label}-t{n}",
         )
         for model, label in (

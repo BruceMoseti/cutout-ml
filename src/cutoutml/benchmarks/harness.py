@@ -92,6 +92,12 @@ class BenchmarkCase:
     #: Only the thread-scaling sweep sets it; every other case inherits the run-wide
     #: value so that a runtime comparison is not secretly also a thread comparison.
     threads: int | None = None
+    #: Set ``False`` for a case that exists only to time something, where the accuracy
+    #: is already established by another row. The eval loop is the expensive half of a
+    #: case, and re-running it across a thread sweep would add minutes to produce
+    #: numbers identical to the row already in the table. A skipped accuracy is
+    #: recorded as ``None`` with a reason, never as a zero.
+    measure_accuracy: bool = True
     options: dict[str, Any] = dataclasses.field(default_factory=dict)
 
     @property
@@ -319,13 +325,19 @@ class BenchmarkHarness:
             compile_outcome = self._maybe_compile(model, case)
             load = sample(self.config.load_sample_seconds)
             latency = self._measure_latency(model, case)
-            accuracy_valid = not case.random_init
+            accuracy_valid = not case.random_init and case.measure_accuracy
             accuracy = self._measure_accuracy(model, case) if accuracy_valid else None
             stages = self._measure_stages(model, case)
             metadata = model.metadata().as_dict()
             notes: list[str] = []
             if case.random_init:
                 notes.append("accuracy: n/a - random weights (latency only)")
+            elif not case.measure_accuracy:
+                notes.append(
+                    "accuracy: not remeasured - this case varies only the runtime "
+                    "configuration, so it is identical to the row measured at the "
+                    "run-wide setting"
+                )
             if compile_outcome.attempted and not compile_outcome.succeeded:
                 notes.append("torch.compile failed; timings are eager-mode")
             if not load.quiet:

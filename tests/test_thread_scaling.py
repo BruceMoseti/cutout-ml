@@ -105,6 +105,21 @@ def test_onnx_resolves_a_zero_request_to_a_real_core_count():
     assert OnnxAdapter(onnx_path="unused.onnx", intra_op_threads=5).effective_intra_op_threads == 5
 
 
+def test_a_skipped_accuracy_is_recorded_as_absent_with_a_reason(restore_torch_threads):
+    """Not as a zero, and not as the random-weights excuse, which would be a lie."""
+    harness = BenchmarkHarness(
+        BenchmarkConfig(threads=1, accuracy_samples=2, warmup=0, repetitions=1)
+    )
+    result = harness.run_case(
+        BenchmarkCase(model="trivial-ones", device="cpu", measure_accuracy=False)
+    )
+    assert result.status == "ok"
+    assert result.accuracy is None
+    assert result.accuracy_valid is False
+    assert "not remeasured" in result.notes
+    assert "random" not in result.notes
+
+
 def test_a_measured_case_records_the_thread_count_it_ran_at(restore_torch_threads):
     harness = BenchmarkHarness(
         BenchmarkConfig(threads=1, accuracy_samples=2, warmup=0, repetitions=1)
