@@ -363,30 +363,74 @@ def build_parser() -> argparse.ArgumentParser:
     p_doctor.add_argument("--json", action="store_true")
     p_doctor.set_defaults(func=cmd_doctor)
 
-    # `train` and `benchmark` own rich flag sets of their own; forwarding the remainder
-    # keeps one canonical definition of each instead of two that drift.
+    # `train` and `benchmark` own rich flag sets of their own; forwarding everything after
+    # the subcommand keeps one canonical definition of each instead of two that drift.
+    #
+    # No arguments are declared and `add_help` is off deliberately. `nargs=REMAINDER` is
+    # the obvious tool and does not work: it refuses to capture a leading option, so
+    # `cutoutml benchmark --quick` died with "unrecognized arguments: --quick" - both
+    # invocations this module's docstring advertises. `main` slices the argv instead.
+    # Suppressing help forwards `--help` too, so `cutoutml train --help` prints the
+    # trainer's own flags rather than a summary that would have to be kept in step.
     p_train = sub.add_parser(
-        "train", help="train a model (arguments forwarded to cutoutml.training.train)"
+        "train",
+        help="train a model (arguments forwarded to cutoutml.training.train)",
+        add_help=False,
     )
-    p_train.add_argument("rest", nargs=argparse.REMAINDER)
     p_train.set_defaults(delegate=cmd_train)
 
     p_bench = sub.add_parser(
-        "benchmark", help="run the benchmark suite (arguments forwarded to benchmarks/run.py)"
+        "benchmark",
+        help="run the benchmark suite (arguments forwarded to benchmarks/run.py)",
+        add_help=False,
     )
-    p_bench.add_argument("rest", nargs=argparse.REMAINDER)
     p_bench.set_defaults(delegate=cmd_benchmark)
 
     return parser
 
 
-def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
-    configure_logging(level=args.log_level, fmt=args.log_format)
+# The global options that take a separate value. ``main`` needs them to find where the
+# subcommand starts and argparse exposes no public accessor for the question, so the set
+# is written out; ``tests/test_cli.py`` asserts it stays in step with ``build_parser``.
+GLOBAL_VALUE_FLAGS = frozenset({"--log-format", "--log-level"})
 
-    delegate = getattr(args, "delegate", None)
+
+def subcommand_index(argv: list[str]) -> int:
+    """Index of the subcommand token in ``argv``, or ``len(argv)`` if there is none.
+
+    Skipping the global options first is the whole point. ``argv.index(name)`` finds the
+    first token that *spells* the subcommand, which for ``--log-level train train ...``
+    is the flag's value, and the argv would then be split one token early.
+    """
+    index = 0
+    while index < len(argv):
+        token = argv[index]
+        if token in GLOBAL_VALUE_FLAGS:
+            index += 2
+        elif token.startswith("-"):
+            index += 1
+        else:
+            return index
+    return len(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    parser = build_parser()
+
+    # Two passes. The first only identifies the subcommand, tolerating flags that belong
+    # to a delegate; the second is the strict parse, so a typo in `segment` is still an
+    # error rather than something silently ignored.
+    probe, _ = parser.parse_known_args(argv)
+    delegate = getattr(probe, "delegate", None)
     if delegate is not None:
-        return int(delegate(list(args.rest)))
+        configure_logging(level=probe.log_level, fmt=probe.log_format)
+        # Sliced from the original argv rather than reassembled from the parsed pieces, so
+        # the delegate sees byte-identical flags in their original order.
+        return int(delegate(argv[subcommand_index(argv) + 1 :]))
+
+    args = parser.parse_args(argv)
+    configure_logging(level=args.log_level, fmt=args.log_format)
     return int(args.func(args))
 
 
