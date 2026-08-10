@@ -32,7 +32,7 @@ import cv2
 import numpy as np
 import torch
 
-from cutoutml.core.imaging import LetterboxInfo, letterbox, unletterbox_mask
+from cutoutml.core.imaging import LetterboxInfo, letterbox
 from cutoutml.models.base import ModelMetadata, SegmentationModel
 
 Method = Literal["saliency", "grabcut", "saliency+grabcut"]
@@ -231,13 +231,6 @@ class ClassicalBaseline(SegmentationModel):
             # blur is the fairest representation of what this baseline can do.
             mask = cv2.GaussianBlur(mask.astype(np.float32), (0, 0), self.soften)
         return np.clip(mask, 0.0, 1.0).astype(np.float32)
-
-    def postprocess(self, logits: torch.Tensor, infos: Sequence[LetterboxInfo]) -> list[np.ndarray]:
-        probs = torch.sigmoid(logits.float())
-        if probs.ndim == 4:
-            probs = probs[:, 0]
-        arr = probs.cpu().numpy()
-        return [unletterbox_mask(arr[i], infos[i]) for i in range(len(infos))]
 
     def metadata(self) -> ModelMetadata:
         return ModelMetadata(

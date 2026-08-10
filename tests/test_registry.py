@@ -1,0 +1,512 @@
+"""Model registry and the adapter contract.
+
+Two things are worth testing here and they are different:
+
+* the **registry** as a lookup and availability oracle - it is what lets
+  ``GET /models`` tell a caller that ``u2net`` has no weights on this machine
+  *before* they submit a job;
+* the **contract** in :class:`~cutoutml.models.base.SegmentationModel` - shapes,
+  the ``preprocess -> predict -> postprocess`` lifecycle, and the promise that
+  ``predict`` returns logits. Everything downstream (pipelines, harness, worker)
+  is written against that contract exactly once, so a violation in any adapter
+  breaks all of them.
+
+The contract tests are parametrised over every adapter that can actually run on
+this machine, which on a CPU-only box means the classical baselines, the trivial
+references, CutoutNet and the ONNX export. TensorRT is skipped by design rather
+than mocked: a mocked GPU test proves nothing about a GPU.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import pytest
+import torch
+
+from cutoutml.core.imaging import LetterboxInfo
+from cutoutml.models import registry
+from cutoutml.models.base import (
+    ModelMetadata,
+    ModelSpec,
+    SegmentationModel,
+    WeightsUnavailableError,
+)
+from cutoutml.models.registry import (
+    ModelNotFoundError,
+    catalogue,
+    get_model,
+    list_model_names,
+    list_models,
+    register,
+    resolve_spec,
+    runtime_available,
+    unregister,
+    usable_models,
+    weights_available,
+)
+
+
+@pytest.fixture
+def temp_spec() -> Any:
+    """Register a throwaway spec and always clean it up."""
+    registered: list[str] = []
+
+    def _register(**overrides: Any) -> ModelSpec:
+        spec = ModelSpec(
+            **{
+                "name": "unit-test-model",
+                "adapter": "cutoutml.models.classical.baseline.TrivialBaseline",
+                "architecture": "Trivial/ones",
+                "input_size": (64, 64),
+                "license": "MIT",
+                "source": "tests",
+                "requires_weights": False,
+                "options": {"method": "ones"},
+                **overrides,
+            }
+        )
+        register(spec, overwrite=True)
+        registered.append(spec.name)
+        return spec
+
+    yield _register
+    for name in registered:
+        unregister(name)
+
+
+# --------------------------------------------------------------- registry basics
+
+
+def test_the_shipped_catalogue_is_registered():
+    names = list_model_names()
+    for expected in ("cutoutnet", "cutoutnet-onnx", "u2net", "birefnet", "classical"):
+        assert expected in names
+
+
+def test_list_models_is_sorted_by_name():
+    names = [s.name for s in list_models()]
+    assert names == sorted(names)
+
+
+def test_resolve_spec_returns_the_spec():
+    spec = resolve_spec("cutoutnet")
+    assert spec.name == "cutoutnet"
+    assert spec.architecture == "CutoutNet-small"
+    assert spec.input_size == (256, 256)
+
+
+def test_unknown_model_names_what_is_available():
+    """The error is a user-facing message, so it must list the alternatives."""
+    with pytest.raises(ModelNotFoundError) as excinfo:
+        resolve_spec("stable-diffusion")
+    message = str(excinfo.value)
+    assert "stable-diffusion" in message
+    assert "cutoutnet" in message
+
+
+def test_register_rejects_a_duplicate_name_unless_overwrite_is_set(temp_spec):
+    spec = temp_spec()
+    with pytest.raises(ValueError, match="already registered"):
+        register(spec)
+    register(spec, overwrite=True)
+
+
+def test_unregister_is_idempotent():
+    unregister("never-registered")
+
+
+def test_registering_a_spec_makes_it_resolvable_and_instantiable(temp_spec):
+    """The whole point of ADR-001: a new model is one spec plus an adapter class."""
+    temp_spec(name="brand-new")
+    assert "brand-new" in list_model_names()
+    model = get_model("brand-new")
+    assert isinstance(model, SegmentationModel)
+    assert model.is_loaded
+
+
+# ---------------------------------------------------------------- availability
+
+
+def test_specs_with_no_artefacts_are_always_available():
+    assert weights_available(resolve_spec("classical")) is True
+    assert weights_available(resolve_spec("trivial-ones")) is True
+
+
+def test_the_trained_cutoutnet_checkpoint_is_present():
+    """This is the checkpoint committed to the repository; a fresh clone must work."""
+    assert weights_available(resolve_spec("cutoutnet")) is True
+
+
+def test_weights_available_is_false_when_the_checkpoint_is_missing(temp_spec):
+    temp_spec(
+        name="missing-weights",
+        adapter="cutoutml.models.cutoutnet.adapter.CutoutNetAdapter",
+        requires_weights=True,
+        default_weights="does-not-exist/nothing.pt",
+        options={"variant": "tiny"},
+    )
+    assert weights_available(resolve_spec("missing-weights")) is False
+
+
+def test_weights_available_accepts_any_one_of_several_artefact_paths(tmp_path, temp_spec):
+    """ONNX and TensorRT specs carry their artefact in options rather than
+    default_weights, and either location counts as available."""
+    artefact = tmp_path / "graph.onnx"
+    artefact.write_bytes(b"not really onnx")
+    temp_spec(
+        name="artefact-in-options",
+        requires_weights=False,
+        default_weights=None,
+        options={"onnx_path": str(artefact)},
+    )
+    assert weights_available(resolve_spec("artefact-in-options")) is True
+
+
+def test_runtime_available_reflects_this_machine():
+    """onnxruntime is a hard dependency here; TensorRT needs a GPU this box lacks."""
+    assert runtime_available(resolve_spec("cutoutnet")) is True
+    assert runtime_available(resolve_spec("cutoutnet-onnx")) is True
+    assert runtime_available(resolve_spec("tensorrt")) is False
+
+
+def test_usable_models_excludes_the_gpu_only_and_weightless_specs():
+    usable = {s.name for s in usable_models()}
+    assert "classical" in usable
+    assert "cutoutnet" in usable
+    assert "tensorrt" not in usable
+
+
+def test_catalogue_is_json_serialisable_and_carries_availability():
+    entries = catalogue()
+    assert entries
+    for entry in entries:
+        assert isinstance(entry["input_size"], list)
+        assert isinstance(entry["tags"], list)
+        assert isinstance(entry["weights_available"], bool)
+        assert isinstance(entry["runtime_available"], bool)
+    names = {e["name"] for e in entries}
+    assert names == set(list_model_names())
+
+
+def test_catalogue_availability_is_recomputed_per_call(tmp_path, temp_spec, monkeypatch):
+    """A checkpoint appearing in models/ (a finished training run, a mounted volume)
+    must show up without restarting the API."""
+    temp_spec(
+        name="appears-later",
+        adapter="cutoutml.models.cutoutnet.adapter.CutoutNetAdapter",
+        requires_weights=True,
+        default_weights="appears-later.pt",
+        options={"variant": "tiny"},
+    )
+    monkeypatch.setattr(registry, "_resolve_weights", lambda _: tmp_path / "appears-later.pt")
+
+    def availability() -> bool:
+        entry = next(e for e in catalogue() if e["name"] == "appears-later")
+        return bool(entry["weights_available"])
+
+    assert availability() is False
+    (tmp_path / "appears-later.pt").write_bytes(b"checkpoint")
+    assert availability() is True
+
+
+# ------------------------------------------------------------------- get_model
+
+
+def test_get_model_attaches_the_spec_so_metadata_can_report_provenance():
+    model = get_model("classical", load=False)
+    assert model.spec is not None
+    assert model.spec.name == "classical"
+    assert model.metadata().license.startswith("baseline implementation")
+
+
+def test_get_model_with_load_false_does_not_load():
+    """The harness needs this to time load() separately from inference."""
+    model = get_model("classical", load=False)
+    assert model.is_loaded is False
+    assert model.load_seconds is None
+    model.load()
+    assert model.is_loaded is True
+    assert model.load_seconds is not None and model.load_seconds >= 0.0
+
+
+def test_get_model_passes_spec_options_to_the_adapter():
+    assert get_model("classical-saliency", load=False).method == "saliency"
+    assert get_model("classical", load=False).method == "grabcut"
+
+
+def test_overrides_win_over_spec_options():
+    model = get_model("classical", load=False, method="saliency")
+    assert model.method == "saliency"
+
+
+def test_random_init_is_refused_for_specs_that_do_not_declare_it():
+    """Random weights return noise; reaching that from an API request by accident
+    would publish a meaningless mask as a real one."""
+    with pytest.raises(ValueError, match="does not support random initialisation"):
+        get_model("classical", random_init=True)
+
+
+def test_random_init_is_allowed_for_specs_that_declare_it_and_is_flagged():
+    model = get_model("cutoutnet-tiny", random_init=True)
+    meta = model.metadata()
+    assert meta.randomly_initialized is True
+    assert meta.accuracy_valid is False
+    assert "RANDOM WEIGHTS" in meta.notes
+
+
+@pytest.mark.skipif(
+    weights_available(resolve_spec("u2net")),
+    reason="u2net weights are present, so the missing-weights path cannot be exercised",
+)
+def test_a_missing_checkpoint_raises_an_error_naming_the_path_and_the_way_out():
+    """This is the normal condition for u2net and birefnet here: their published
+    weights live on HuggingFace, which is unreachable in this environment. The
+    error has to say where the file was expected and what to do instead."""
+    with pytest.raises(WeightsUnavailableError) as excinfo:
+        get_model("u2net")
+    message = str(excinfo.value)
+    assert "u2net.pth" in message
+    assert "train" in message.lower()
+
+
+def test_the_missing_weights_error_points_at_training_for_in_repo_architectures(temp_spec):
+    """CutoutNet weights are never downloaded, so its hint must not suggest that.
+    The adapter also resolves by model name under models/cutoutnet/ rather than
+    trusting the spec's path, so a run that finishes mid-session is picked up."""
+    temp_spec(
+        name="cutoutnet-nonexistent-variant",
+        adapter="cutoutml.models.cutoutnet.adapter.CutoutNetAdapter",
+        requires_weights=True,
+        default_weights="cutoutnet/absent.pt",
+        supports_random_init=True,
+        options={"variant": "tiny"},
+    )
+    with pytest.raises(WeightsUnavailableError) as excinfo:
+        get_model("cutoutnet-nonexistent-variant")
+    message = str(excinfo.value)
+    assert "models/cutoutnet/cutoutnet-nonexistent-variant.pt" in message
+    assert "cutoutml.training.train" in message
+
+
+def test_adapter_must_be_a_segmentation_model_subclass(temp_spec):
+    temp_spec(name="not-a-model", adapter="pathlib.Path")
+    with pytest.raises(TypeError, match="not a SegmentationModel"):
+        get_model("not-a-model")
+
+
+# ------------------------------------------------------- the adapter contract
+
+
+def _contract_models() -> list[str]:
+    """Every spec that can actually run here. Skipped ones are reported, not faked."""
+    names = ["classical-saliency", "trivial-center", "trivial-ones", "cutoutnet"]
+    if weights_available(resolve_spec("cutoutnet-onnx")):
+        names.append("cutoutnet-onnx")
+    return names
+
+
+@pytest.fixture(scope="module", params=_contract_models())
+def contract_model(request: pytest.FixtureRequest) -> SegmentationModel:
+    """Loaded once per adapter: loading CutoutNet per test would dominate runtime."""
+    return get_model(request.param, device="cpu")
+
+
+def test_preprocess_returns_a_batched_tensor_and_one_info_per_image(contract_model):
+    images = [
+        np.random.default_rng(1).integers(0, 255, (120, 200, 3), dtype=np.uint8),
+        np.random.default_rng(2).integers(0, 255, (64, 64, 3), dtype=np.uint8),
+    ]
+    tensor, infos = contract_model.preprocess(images)
+
+    w, h = contract_model.input_size
+    assert tensor.shape == (2, 3, h, w)
+    assert tensor.dtype == torch.float32
+    assert len(infos) == 2
+    assert all(isinstance(i, LetterboxInfo) for i in infos)
+    assert (infos[0].orig_width, infos[0].orig_height) == (200, 120)
+
+
+def test_preprocess_accepts_a_single_unbatched_image(contract_model):
+    """Convenience the API relies on: a single upload should not need wrapping."""
+    image = np.zeros((48, 48, 3), dtype=np.uint8)
+    tensor, infos = contract_model.preprocess(image)
+    assert tensor.shape[0] == 1
+    assert len(infos) == 1
+
+
+def test_predict_returns_logits_shaped_n1hw(contract_model):
+    image = np.random.default_rng(3).integers(0, 255, (96, 96, 3), dtype=np.uint8)
+    tensor, _ = contract_model.preprocess([image])
+    logits = contract_model.predict(tensor)
+
+    assert logits.ndim == 4
+    assert logits.shape[0] == 1
+    assert logits.shape[1] == 1
+    assert logits.dtype == torch.float32
+    # Logits, not probabilities: sigmoid lives in postprocess so the training loop
+    # can reuse the same forward path with a numerically stable loss.
+    assert logits.min() < 0.0 or logits.max() > 1.0
+
+
+def test_postprocess_returns_one_alpha_map_per_image_at_the_original_size(contract_model):
+    images = [
+        np.random.default_rng(4).integers(0, 255, (100, 150, 3), dtype=np.uint8),
+        np.random.default_rng(5).integers(0, 255, (60, 40, 3), dtype=np.uint8),
+    ]
+    tensor, infos = contract_model.preprocess(images)
+    alphas = contract_model.postprocess(contract_model.predict(tensor), infos)
+
+    assert len(alphas) == 2
+    assert alphas[0].shape == (100, 150)
+    assert alphas[1].shape == (60, 40)
+    for alpha in alphas:
+        assert alpha.dtype == np.float32
+        assert float(alpha.min()) >= 0.0
+        assert float(alpha.max()) <= 1.0
+
+
+def test_postprocess_rejects_a_batch_and_info_count_mismatch(contract_model):
+    image = np.zeros((32, 32, 3), dtype=np.uint8)
+    tensor, infos = contract_model.preprocess([image, image])
+    logits = contract_model.predict(tensor)
+    with pytest.raises(ValueError, match="letterbox infos"):
+        contract_model.postprocess(logits, infos[:1])
+
+
+def test_infer_is_equivalent_to_the_three_stages(contract_model):
+    """The pipelines call infer(); the harness calls the stages separately to
+    attribute latency. They must agree or the stage breakdown is fiction."""
+    image = np.random.default_rng(6).integers(0, 255, (80, 112, 3), dtype=np.uint8)
+
+    one_shot = contract_model.infer([image])
+    tensor, infos = contract_model.preprocess([image])
+    staged = contract_model.postprocess(contract_model.predict(tensor), infos)
+
+    assert len(one_shot) == len(staged) == 1
+    np.testing.assert_allclose(one_shot[0], staged[0], atol=1e-5)
+
+
+def test_batching_does_not_change_per_image_results(contract_model):
+    """If it did, every batched benchmark row would be measuring a different model
+    from the batch-1 row."""
+    rng = np.random.default_rng(7)
+    images = [rng.integers(0, 255, (64, 64, 3), dtype=np.uint8) for _ in range(3)]
+
+    batched = contract_model.infer(images)
+    individually = [contract_model.infer([img])[0] for img in images]
+
+    for got, want in zip(batched, individually, strict=True):
+        np.testing.assert_allclose(got, want, atol=1e-4)
+
+
+def test_metadata_is_complete_and_serialisable(contract_model):
+    meta = contract_model.metadata()
+    assert isinstance(meta, ModelMetadata)
+    assert meta.name
+    assert meta.architecture
+    assert meta.device == "cpu"
+    assert meta.runtime
+    assert meta.license
+    payload = meta.as_dict()
+    assert isinstance(payload["input_size"], list)
+    assert payload["accuracy_valid"] is not None
+
+
+def test_load_is_idempotent_and_records_cold_start_time(contract_model):
+    seconds = contract_model.load_seconds
+    contract_model.load()
+    assert contract_model.load_seconds == seconds
+
+
+def test_using_a_model_before_load_is_an_error_not_a_crash():
+    model = get_model("cutoutnet", load=False, device="cpu")
+    with pytest.raises(RuntimeError, match="before load"):
+        model.infer([np.zeros((16, 16, 3), dtype=np.uint8)])
+
+
+# ------------------------------------------------------------- adapter specifics
+
+
+def test_classical_baselines_report_valid_accuracy_and_zero_parameters():
+    """They are the interpretability floor of the benchmark table, so their
+    accuracy column must be trustworthy and clearly non-learned."""
+    meta = get_model("classical-saliency", device="cpu").metadata()
+    assert meta.param_count == 0
+    assert meta.accuracy_valid is True
+    assert meta.randomly_initialized is False
+    assert "opencv" in meta.runtime
+
+
+def test_trivial_ones_predicts_foreground_everywhere():
+    model = get_model("trivial-ones", device="cpu")
+    (alpha,) = model.infer([np.zeros((40, 40, 3), dtype=np.uint8)])
+    assert float(alpha.min()) > 0.99
+
+
+def test_trivial_center_ellipse_is_content_blind():
+    """Its whole diagnostic value is that the image cannot influence it."""
+    model = get_model("trivial-center", device="cpu")
+    rng = np.random.default_rng(8)
+    a = model.infer([rng.integers(0, 255, (64, 64, 3), dtype=np.uint8)])[0]
+    b = model.infer([np.zeros((64, 64, 3), dtype=np.uint8)])[0]
+    np.testing.assert_array_equal(a, b)
+    assert a[32, 32] > 0.9
+    assert a[0, 0] < 0.1
+
+
+def test_cutoutnet_reports_its_real_parameter_count():
+    model = get_model("cutoutnet", device="cpu")
+    meta = model.metadata()
+    assert 0.5e6 < meta.param_count < 3e6
+    assert meta.accuracy_valid is True
+    assert meta.weights_path is not None and Path(meta.weights_path).is_file()
+
+
+def test_cutoutnet_produces_a_non_degenerate_mask_on_a_high_contrast_subject():
+    """A trained model must at least separate a bright disc from a dark field. If
+    this fails, the committed checkpoint is broken and every accuracy number in
+    docs/benchmarks.md is meaningless."""
+    image = np.full((128, 128, 3), 20, dtype=np.uint8)
+    yy, xx = np.mgrid[0:128, 0:128]
+    disc = (xx - 64) ** 2 + (yy - 64) ** 2 <= 34**2
+    image[disc] = (240, 230, 60)
+
+    (alpha,) = get_model("cutoutnet", device="cpu").infer([image])
+
+    assert alpha[disc].mean() > alpha[~disc].mean()
+    assert 0.05 < float(alpha.mean()) < 0.95
+
+
+@pytest.mark.skipif(
+    not weights_available(resolve_spec("cutoutnet-onnx")),
+    reason="ONNX export not present; run python -m cutoutml.models.export_onnx",
+)
+def test_onnx_adapter_reports_the_provider_it_actually_got():
+    """Reporting a provider that failed to initialise is how bogus benchmark rows
+    are produced, so metadata records get_providers() rather than the request."""
+    model = get_model("cutoutnet-onnx", device="cpu")
+    assert model.active_providers
+    assert model.active_providers[0] == "CPUExecutionProvider"
+    assert model.metadata().runtime == "onnxruntime:CPUExecutionProvider"
+
+
+@pytest.mark.skipif(
+    not weights_available(resolve_spec("cutoutnet-onnx")),
+    reason="ONNX export not present; run python -m cutoutml.models.export_onnx",
+)
+def test_onnx_and_torch_cutoutnet_agree_within_numerical_tolerance():
+    """The export is only a valid benchmark row if it computes the same function."""
+    image = np.random.default_rng(9).integers(0, 255, (96, 96, 3), dtype=np.uint8)
+    torch_alpha = get_model("cutoutnet", device="cpu").infer([image])[0]
+    onnx_alpha = get_model("cutoutnet-onnx", device="cpu").infer([image])[0]
+    np.testing.assert_allclose(onnx_alpha, torch_alpha, atol=2e-3)
+
+
+def test_tensorrt_spec_is_registered_but_not_usable_on_this_machine():
+    """Recorded as a test so the CPU-only constraint is asserted, not assumed."""
+    spec = resolve_spec("tensorrt")
+    assert spec.runtime == "tensorrt"
+    assert runtime_available(spec) is False
