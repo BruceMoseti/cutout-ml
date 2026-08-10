@@ -33,6 +33,14 @@ on:
         description: "Evaluation samples per case"
         required: false
         default: "64"
+      threads:
+        # Defaulted to 1 to match the committed suite. A hosted runner is a shared,
+        # unknowable machine, and multi-threaded timings on one are dominated by how the
+        # hypervisor felt rather than by the model -- see the thread-scaling section of
+        # docs/benchmarks.md for the effect measured directly.
+        description: "Intra-op threads per runtime (0 = one per core)"
+        required: false
+        default: "1"
       train_first:
         description: "Train the checkpoints first (slow; otherwise trained cases skip)"
         type: boolean
@@ -82,6 +90,7 @@ jobs:
           python benchmarks/run.py \
             --repetitions '${{ inputs.repetitions }}' \
             --accuracy-samples '${{ inputs.accuracy_samples }}' \
+            --threads '${{ inputs.threads }}' \
             --log-format json \
             --no-render \
             ${{ inputs.models && format('--models {0}', inputs.models) || '' }}
@@ -100,6 +109,8 @@ jobs:
             echo
             echo '> Shared CI hardware. Not comparable with the numbers committed in'
             echo '> docs/benchmarks.md, which were measured on a single known machine.'
+            echo '> Check the per-case load column before drawing any conclusion from a'
+            echo '> latency here: a hosted runner is frequently not quiet.'
             echo
             sed -n '/^| /,/^$/p' docs/benchmarks.md | head -60
           } >> "$GITHUB_STEP_SUMMARY"
