@@ -264,8 +264,11 @@ class TorchSegmentationModel(SegmentationModel):
     #: NHWC ("channels last") weight/activation layout. On CPU this measurably
     #: speeds up depthwise-separable convolutions, because oneDNN has NHWC kernels
     #: for them and falls back to a slower path for NCHW; on CUDA it is what the
-    #: tensor-core kernels want. Measured 1.4x on CutoutNet training steps on this
-    #: 8-core box. Disabled for architectures that gain nothing (see U2NetAdapter).
+    #: tensor-core kernels want. Measured 1.4-1.6x on cutoutnet-small training steps
+    #: (batch 4, 256x256, 8 threads) over three alternating runs on this 8-core CPU -
+    #: the spread is run-to-run variance on a shared machine, not a range across
+    #: configurations, and it is a micro-benchmark rather than a committed artifact.
+    #: Disabled for architectures that gain nothing (see U2NetAdapter).
     use_channels_last: bool = True
 
     def __init__(self, **kwargs: Any) -> None:
