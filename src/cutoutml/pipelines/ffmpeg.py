@@ -16,9 +16,11 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses
+import functools
 import json
 import shutil
 import subprocess
+import tempfile
 from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import Any
@@ -103,7 +105,7 @@ def probe(path: Path | str, *, ffprobe: str = "ffprobe") -> VideoInfo:
     if declared and str(declared).isdigit() and int(declared) > 0:
         frame_count = int(declared)
     elif fps > 0 and duration > 0:
-        frame_count = int(round(duration * fps))
+        frame_count = round(duration * fps)
     else:
         frame_count = 0
 
@@ -354,17 +356,23 @@ def encoder_args(
 ) -> list[str]:
     """Encoder flags per container.
 
-    The important asymmetry, and the reason ``docs/decisions/ADR-003`` exists:
+    The important asymmetry, and the reason ``docs/decisions/ADR-003-video-output.md``
+    exists:
 
     * **MP4/H.264 has no usable alpha channel.** The spec allows auxiliary alpha
       pictures; no browser or NLE decodes them. So MP4 output is always a
       *composite* over a chosen background, never transparent.
-    * **WebM/VP9 does** carry alpha (``yuva420p``), and Chrome/Firefox play it. It is
-      the practical choice for transparent video on the web. ``-auto-alt-ref 0`` is
-      required: alternate reference frames are incompatible with the alpha plane in
-      libvpx and silently produce a fully opaque result.
+    * **WebM/VP9 can** carry alpha (``yuva420p``) and Chrome/Firefox play it, which
+      makes it the obvious choice for transparent video on the web - but whether a
+      given ffmpeg/libvpx build actually *writes* the alpha plane varies, and when it
+      does not it produces a fully opaque file with no warning. ``-auto-alt-ref 0``
+      is a hard requirement (alternate reference frames are incompatible with the
+      alpha plane), and even with it the result must be verified rather than assumed.
+      :func:`alpha_roundtrip_works` does that verification; ``docs/benchmarks.md``
+      records what this machine's build actually does.
     * **ProRes 4444 / QuickTime RLE** are the lossless-ish alpha formats editors
-      actually want; both are enormous, which is why they are opt-in.
+      actually want, and their alpha support is far more reliable across builds.
+      Both are enormous, which is why they are opt-in.
 
     ``-pix_fmt yuv420p`` on H.264 is not optional in practice: without it ffmpeg may
     pick ``yuv444p`` from an RGB input, which Safari and most hardware decoders
@@ -407,9 +415,125 @@ def encoder_args(
     )
 
 
+ALPHA_CONTAINERS: tuple[str, ...] = ("webm", "mov", "qtrle")
+"""Containers whose codecs are *specified* to carry alpha. Not a capability claim."""
+
+_CONTAINER_EXTENSIONS: dict[str, str] = {
+    "mp4": "mp4", "h264": "mp4", "m4v": "m4v",
+    "webm": "webm", "vp9": "webm",
+    "mov": "mov", "prores": "mov",
+    # qtrle is a *codec*, and its container is QuickTime. ffmpeg picks the muxer
+    # from the extension, so writing "out.qtrle" fails to select one at all.
+    "qtrle": "mov",
+}
+
+
+def container_extension(container: str) -> str:
+    """File extension for a container/codec name, since the two are not the same."""
+    fmt = container.lower().lstrip(".")
+    try:
+        return _CONTAINER_EXTENSIONS[fmt]
+    except KeyError:
+        raise ValueError(
+            f"unsupported container {container!r}; expected one of "
+            f"{', '.join(sorted(_CONTAINER_EXTENSIONS))}"
+        ) from None
+
+
 def container_supports_alpha(container: str) -> bool:
-    """Whether a container/codec pair can carry transparency in practice."""
+    """Whether a container/codec pair is *specified* to carry transparency.
+
+    This is a statement about the format, not about the local ffmpeg build. Use
+    :func:`alpha_roundtrip_works` before promising a caller a transparent result.
+    """
     return container.lower().lstrip(".") in {"webm", "vp9", "mov", "prores", "qtrle"}
+
+
+def _decode_alpha_range(path: Path, size: tuple[int, int], ffmpeg: str) -> tuple[int, int] | None:
+    """Decode ``path`` to RGBA and return ``(min_alpha, max_alpha)``, or ``None``."""
+    width, height = size
+    proc = subprocess.run(
+        [ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-i", str(path),
+         "-f", "rawvideo", "-pix_fmt", "rgba", "-"],
+        capture_output=True, check=False,
+    )
+    stride = width * height * 4
+    if proc.returncode != 0 or len(proc.stdout) < stride:
+        return None
+    alpha = proc.stdout[3:stride:4]
+    return (min(alpha), max(alpha))
+
+
+def alpha_roundtrip_works(container: str, ffmpeg: str = "ffmpeg") -> bool:
+    """Encode a two-frame half-transparent clip and check the alpha survives.
+
+    This exists because a codec advertising ``yuva420p`` in
+    ``ffmpeg -h encoder=...`` does **not** mean the muxer will write the alpha
+    plane. On the machine these benchmarks were produced on (ffmpeg 6.1.1, Ubuntu
+    24.04 libvpx) both ``libvpx-vp9`` and ``libvpx`` accept ``-pix_fmt yuva420p``,
+    exit 0, and emit a fully opaque file. Trusting the codec table there would mean
+    handing users a "transparent" video with no transparency in it.
+
+    The probe is a real encode/decode of a 32x32x2-frame clip - a few milliseconds -
+    and is cached per process, so readiness checks and job validation can call it
+    freely. Arguments are normalised before the cache lookup so that positional and
+    defaulted calls share one entry.
+    """
+    return _alpha_roundtrip_works(container.lower().lstrip("."), ffmpeg)
+
+
+@functools.lru_cache(maxsize=16)
+def _alpha_roundtrip_works(container: str, ffmpeg: str) -> bool:
+    try:
+        binary = _binary("ffmpeg", ffmpeg)
+    except FFmpegError:
+        return False
+
+    size = (32, 32)
+    try:
+        args = encoder_args(container, crf=30, alpha=True)
+        extension = container_extension(container)
+    except ValueError:
+        return False
+
+    with tempfile.TemporaryDirectory(prefix="cutoutml-alpha-probe-") as tmp:
+        out = Path(tmp) / f"probe.{extension}"
+        # Left half fully transparent, right half opaque: a uniform alpha could be
+        # mistaken for a codec that writes a constant plane.
+        frame = bytearray()
+        for _ in range(size[1]):
+            frame += bytes([200, 40, 40, 0]) * (size[0] // 2)
+            frame += bytes([200, 40, 40, 255]) * (size[0] // 2)
+        cmd = [
+            binary, "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
+            "-f", "rawvideo", "-pix_fmt", "rgba", "-s", f"{size[0]}x{size[1]}",
+            "-r", "10", "-i", "-", *args, str(out),
+        ]
+        proc = subprocess.run(cmd, input=bytes(frame) * 2, capture_output=True, check=False)
+        if proc.returncode != 0 or not out.is_file():
+            log.warning(
+                "alpha_probe_encode_failed",
+                container=container,
+                stderr=proc.stderr.decode("utf-8", "replace")[-400:],
+            )
+            return False
+        observed = _decode_alpha_range(out, size, binary)
+
+    if observed is None:
+        return False
+    low, high = observed
+    works = low < 32 and high > 224
+    log.info("alpha_probe", container=container, alpha_min=low, alpha_max=high, works=works)
+    return works
+
+
+def working_alpha_containers(ffmpeg: str = "ffmpeg") -> list[str]:
+    """Which alpha-capable containers this ffmpeg build actually delivers.
+
+    Reported by the readiness endpoint so an operator learns that transparent video
+    is unavailable at deploy time rather than from a user's complaint.
+    """
+    return [c for c in ALPHA_CONTAINERS if alpha_roundtrip_works(c, ffmpeg)]
 
 
 ALPHA_DECODER_ARGS: dict[str, list[str]] = {

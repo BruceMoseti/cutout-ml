@@ -27,14 +27,27 @@ mean absolute frame-to-frame alpha difference with and without smoothing, so the
 trade-off is a number rather than an opinion. Smoothing always costs some
 responsiveness on fast motion; the default EMA weight of 0.65 is a compromise, and
 ``docs/benchmarks.md`` shows the measured effect.
+
+Output modes and the alpha problem
+----------------------------------
+``composite`` burns a background into an ordinary H.264 MP4 - universally playable,
+no transparency. ``transparent`` needs a container that actually carries an alpha
+plane, which in practice means WebM/VP9 (``yuva420p``), ProRes 4444 or QuickTime RLE;
+:func:`cutoutml.pipelines.ffmpeg.encoder_args` refuses MP4 + alpha rather than
+silently producing an opaque file. ``frames`` sidesteps codecs entirely by writing an
+RGBA PNG per frame, optionally zipped - lossless alpha, largest output, and the only
+option a video editor will always accept. ``docs/decisions/ADR-003-video-output.md``
+works through the trade-off.
 """
 
 from __future__ import annotations
 
 import dataclasses
 import shutil
+import subprocess
 import tempfile
 import time
+import zipfile
 from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
 from typing import Any, Literal
@@ -55,9 +68,11 @@ from cutoutml.pipelines.ffmpeg import (
     FrameReader,
     FrameWriter,
     VideoInfo,
+    alpha_roundtrip_works,
     container_supports_alpha,
     encoder_args,
     probe,
+    working_alpha_containers,
 )
 
 log = get_logger(__name__)
@@ -120,6 +135,10 @@ class VideoRequest:
     keep_audio: bool = True
     progress_interval: int = 15
     measure_flicker: bool = False
+    #: For ``mode="frames"``, collect the sequence into a single zip archive. A
+    #: thousand-file directory is not a deliverable a client can download.
+    archive_frames: bool = True
+    frame_limit: int = 18_000
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -137,6 +156,7 @@ class VideoRequest:
             "crf": self.crf,
             "preset": self.preset,
             "measure_flicker": self.measure_flicker,
+            "archive_frames": self.archive_frames,
         }
 
 
@@ -156,10 +176,23 @@ class VideoResult:
     flicker_raw: float | None = None
     flicker_smoothed: float | None = None
     output_bytes: int = 0
+    archive_path: Path | None = None
+    has_alpha: bool = False
+
+    @property
+    def deliverable(self) -> Path:
+        """The single path a client should be handed.
+
+        For frame-sequence output that is the zip, not the directory; every other
+        mode produces one file already.
+        """
+        return self.archive_path or self.output_path
 
     def summary(self) -> dict[str, Any]:
         return {
             "output_path": str(self.output_path),
+            "deliverable": str(self.deliverable),
+            "archive_path": str(self.archive_path) if self.archive_path else None,
             "frame_count": len(self.frame_paths) or self.frames_processed,
             "frames_processed": self.frames_processed,
             "seconds": round(self.seconds, 3),
@@ -167,6 +200,7 @@ class VideoResult:
             "mode": self.mode,
             "container": self.container,
             "smoothing": self.smoothing,
+            "has_alpha": self.has_alpha,
             "flicker_raw": self.flicker_raw,
             "flicker_smoothed": self.flicker_smoothed,
             "output_bytes": self.output_bytes,
@@ -237,7 +271,7 @@ class VideoPipeline:
             raise FileNotFoundError(f"video not found: {src}")
 
         info = probe(src, ffprobe=ffprobe)
-        self._validate(req, info)
+        self._validate(req, info, ffmpeg)
 
         out_w, out_h = req.scale_to or (info.width, info.height)
         total = req.max_frames or info.frame_count
@@ -294,11 +328,19 @@ class VideoPipeline:
                         )
                     )
 
+        archive: Path | None = None
+        if frame_paths and req.archive_frames:
+            archive = archive_frames(frame_paths, dst.with_suffix(".zip"))
+
         elapsed = time.perf_counter() - started
         output_bytes = (
-            sum(p.stat().st_size for p in frame_paths)
-            if frame_paths
-            else (dst.stat().st_size if dst.is_file() else 0)
+            archive.stat().st_size
+            if archive is not None
+            else (
+                sum(p.stat().st_size for p in frame_paths)
+                if frame_paths
+                else (dst.stat().st_size if dst.is_file() else 0)
+            )
         )
 
         result = VideoResult(
@@ -314,6 +356,8 @@ class VideoPipeline:
             flicker_raw=estimate_flicker(alphas_raw) if req.measure_flicker else None,
             flicker_smoothed=estimate_flicker(alphas_out) if req.measure_flicker else None,
             output_bytes=output_bytes,
+            archive_path=archive,
+            has_alpha=req.mode in {"transparent", "frames"},
         )
 
         if on_progress:
@@ -332,17 +376,40 @@ class VideoPipeline:
 
     # ------------------------------------------------------------------ internals
 
-    def _validate(self, req: VideoRequest, info: VideoInfo) -> None:
+    def _validate(self, req: VideoRequest, info: VideoInfo, ffmpeg: str) -> None:
+        """Reject impossible requests before spawning ffmpeg or decoding frames.
+
+        Every check here would otherwise surface either as a confusing ffmpeg stderr
+        dump several seconds in, or - worse, in the alpha case - as a silently opaque
+        "transparent" video.
+        """
         if info.width <= 0 or info.height <= 0:
             raise ValueError(f"invalid video dimensions {info.width}x{info.height}")
-        if req.mode == "transparent" and not container_supports_alpha(req.container):
+
+        if req.mode == "transparent":
+            if not container_supports_alpha(req.container):
+                raise ValueError(
+                    f"container {req.container!r} cannot carry alpha. Use 'mov' "
+                    "(ProRes 4444), 'qtrle', 'webm' (VP9), switch to mode='frames' "
+                    "for an RGBA PNG sequence, or mode='composite' to burn in a "
+                    "background. See docs/decisions/ADR-003-video-output.md."
+                )
+            if not alpha_roundtrip_works(req.container, ffmpeg):
+                usable = working_alpha_containers(ffmpeg)
+                raise ValueError(
+                    f"container {req.container!r} is specified to carry alpha but this "
+                    f"ffmpeg build drops it (verified by encode/decode round-trip). "
+                    f"Containers that do preserve alpha here: "
+                    f"{', '.join(usable) if usable else 'none'}. mode='frames' always "
+                    "works. See docs/decisions/ADR-003-video-output.md."
+                )
+        requested = req.max_frames or info.frame_count
+        if req.frame_limit > 0 and requested > req.frame_limit:
             raise ValueError(
-                f"container {req.container!r} cannot carry alpha. Use 'webm' (VP9), "
-                "'mov' (ProRes 4444) or 'qtrle' for transparency, or switch to "
-                "mode='composite'. See docs/decisions/ADR-003-webm-alpha.md."
+                f"video has {requested} frames, above the configured limit of "
+                f"{req.frame_limit}. Raise CUTOUTML_MAX_VIDEO_FRAMES or pass "
+                "max_frames to process a prefix."
             )
-        if req.mode == "background_composite" and req.background_image is None:
-            raise ValueError("mode requires a background image")
 
     def _make_writer(
         self,
@@ -533,6 +600,23 @@ def make_test_video(
     return out
 
 
+def archive_frames(paths: Sequence[Path], destination: Path | str) -> Path:
+    """Zip a PNG frame sequence into a single downloadable artefact.
+
+    ``ZIP_STORED`` rather than ``ZIP_DEFLATE``: PNG is already deflate-compressed, so
+    re-compressing costs CPU proportional to the whole output and typically saves
+    under 1%. Frames are added by basename so the archive extracts into a flat
+    directory rather than reproducing the server's temp path.
+    """
+    dst = Path(destination)
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(dst, "w", compression=zipfile.ZIP_STORED) as zf:
+        for path in paths:
+            zf.write(path, arcname=path.name)
+    log.info("frames_archived", frames=len(paths), path=str(dst), bytes=dst.stat().st_size)
+    return dst
+
+
 def frames_to_video(
     directory: Path | str,
     destination: Path | str,
@@ -544,8 +628,6 @@ def frames_to_video(
     ffmpeg: str = "ffmpeg",
 ) -> Path:
     """Re-assemble a frame sequence into a video (the inverse of ``mode="frames"``)."""
-    import subprocess
-
     src = Path(directory)
     dst = Path(destination)
     dst.parent.mkdir(parents=True, exist_ok=True)

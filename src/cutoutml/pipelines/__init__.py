@@ -1,14 +1,18 @@
 """End-to-end image and video pipelines."""
 
 from cutoutml.pipelines.ffmpeg import (
+    ALPHA_CONTAINERS,
     FFmpegError,
     FrameReader,
     FrameWriter,
     UnsupportedCodecError,
     VideoInfo,
+    alpha_roundtrip_works,
+    container_extension,
     container_supports_alpha,
     encoder_args,
     probe,
+    working_alpha_containers,
 )
 from cutoutml.pipelines.image import (
     DEFAULT_OUTPUTS,
@@ -23,11 +27,14 @@ from cutoutml.pipelines.video import (
     VideoProgress,
     VideoRequest,
     VideoResult,
+    archive_frames,
     estimate_flicker,
+    frames_to_video,
     make_test_video,
 )
 
 __all__ = [
+    "ALPHA_CONTAINERS",
     "DEFAULT_OUTPUTS",
     "FFmpegError",
     "FrameReader",
@@ -43,9 +50,14 @@ __all__ = [
     "VideoProgress",
     "VideoRequest",
     "VideoResult",
+    "alpha_roundtrip_works",
+    "archive_frames",
+    "container_extension",
     "container_supports_alpha",
     "encoder_args",
     "estimate_flicker",
+    "frames_to_video",
     "make_test_video",
     "probe",
+    "working_alpha_containers",
 ]
