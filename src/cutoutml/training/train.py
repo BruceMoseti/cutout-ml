@@ -1,6 +1,12 @@
-"""CutoutNet training loop.
+"""Training loop for every from-scratch architecture in this repository.
 
-Constraints this loop is designed around: **8 CPU cores, no GPU, a few minutes**.
+The loop itself knows nothing about networks: it takes a
+:class:`~cutoutml.training.architectures.TrainableArch` and drives batches, a
+schedule and a loss through it. That is what lets the same code, the same synthetic
+data and the same metrics produce the CutoutNet capacity curve *and* the U^2-Net
+comparison, so the rows of the benchmark table differ only in the architecture.
+
+Constraints this loop is designed around: **8 CPU cores, no GPU, tens of minutes**.
 That budget dictates every choice below.
 
 * 256x256 inputs and a ~1.1M-parameter network, so a forward+backward step costs
@@ -43,23 +49,30 @@ from torch import nn
 from torch.utils.data import DataLoader, Dataset
 
 from cutoutml.core.config import REPO_ROOT
-from cutoutml.core.devices import Precision, resolve_device, resolve_precision
+from cutoutml.core.devices import (
+    Precision,
+    describe_device,
+    resolve_device,
+    resolve_precision,
+)
 from cutoutml.core.imaging import normalize
 from cutoutml.core.logging import configure_logging, get_logger
 from cutoutml.core.metrics import iou as iou_metric
 from cutoutml.core.metrics import mae as mae_metric
 from cutoutml.datasets.synthetic import SyntheticConfig, SyntheticSegmentationDataset
-from cutoutml.models.cutoutnet.arch import ARCHITECTURES
+from cutoutml.training.architectures import ARCHITECTURES, Normalization, resolve_arch
 from cutoutml.training.losses import LossWeights, SegmentationLoss
 
 log = get_logger(__name__)
+
+DEFAULT_ARCH = "cutoutnet-small"
 
 
 @dataclasses.dataclass(slots=True)
 class TrainConfig:
     """Everything that defines a training run. Serialised into the run JSON."""
 
-    variant: str = "small"
+    arch: str = DEFAULT_ARCH
     resolution: int = 256
     train_samples: int = 3072
     val_samples: int = 192
@@ -77,7 +90,7 @@ class TrainConfig:
     ema_decay: float = 0.0
     channels_last: bool = True
     loss: LossWeights = dataclasses.field(default_factory=LossWeights)
-    output_dir: Path = REPO_ROOT / "models" / "cutoutnet"
+    output_dir: Path | None = None
     run_dir: Path = REPO_ROOT / "training" / "runs"
     dataset_seed: int = 20240817
     torch_threads: int = 0
@@ -85,32 +98,42 @@ class TrainConfig:
     def as_dict(self) -> dict[str, Any]:
         d = dataclasses.asdict(self)
         d["loss"] = self.loss.as_dict()
-        d["output_dir"] = str(self.output_dir)
+        d["output_dir"] = str(self.output_dir) if self.output_dir else None
         d["run_dir"] = str(self.run_dir)
         return d
+
+    def checkpoint_path(self) -> Path:
+        """Where this run's best checkpoint is written.
+
+        Defaults to the location the serving adapter looks in, so a finished run is
+        immediately servable without a copy step.
+        """
+        arch = resolve_arch(self.arch)
+        if self.output_dir is not None:
+            return self.output_dir / Path(arch.checkpoint).name
+        return REPO_ROOT / "models" / arch.checkpoint
 
 
 class TensorDatasetWrapper(Dataset[tuple[torch.Tensor, torch.Tensor]]):
     """Adapts the NumPy synthetic dataset to normalised torch tensors.
 
-    Normalisation is ``[-1, 1]``, matching
-    :attr:`cutoutml.models.cutoutnet.adapter.CutoutNetAdapter.normalization`. If
-    these two ever disagree the model will appear to train fine and then score
-    terribly at inference, so the constant lives in one place and is imported here.
+    The normalisation constants come from the architecture registry, which is also
+    what the serving adapter declares. If the two ever disagree the model appears to
+    train fine and then scores near chance at inference, so there is exactly one
+    source for the constant and ``tests/unit/test_training_architectures.py``
+    asserts the two agree for every registered architecture.
     """
 
-    MEAN = (0.5, 0.5, 0.5)
-    STD = (0.5, 0.5, 0.5)
-
-    def __init__(self, base: SyntheticSegmentationDataset) -> None:
+    def __init__(self, base: SyntheticSegmentationDataset, normalization: Normalization) -> None:
         self.base = base
+        self.mean, self.std = normalization
 
     def __len__(self) -> int:
         return len(self.base)
 
     def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor]:
         image, alpha = self.base[index]
-        x = torch.from_numpy(normalize(image, self.MEAN, self.STD))
+        x = torch.from_numpy(normalize(image, self.mean, self.std))
         y = torch.from_numpy(np.ascontiguousarray(alpha))[None]
         return x, y
 
@@ -213,26 +236,39 @@ def train(cfg: TrainConfig) -> dict[str, Any]:
     if cfg.torch_threads > 0:
         torch.set_num_threads(cfg.torch_threads)
 
+    arch = resolve_arch(cfg.arch)
     device = resolve_device(cfg.device)
     precision = resolve_precision(cfg.precision, device)
     log.info(
         "train_start",
-        variant=cfg.variant,
+        arch=cfg.arch,
         device=str(device),
         precision=precision,
         threads=torch.get_num_threads(),
+        resolution=cfg.resolution,
     )
+    if not arch.cpu_feasible and device.type == "cpu":
+        log.warning(
+            "arch_not_cpu_feasible",
+            arch=cfg.arch,
+            note=(
+                "this architecture is not sized for CPU training; the run will "
+                "complete but is unlikely to reach a useful accuracy"
+            ),
+        )
 
     data_cfg = SyntheticConfig(resolution=(cfg.resolution, cfg.resolution))
     train_ds = TensorDatasetWrapper(
         SyntheticSegmentationDataset(
             count=cfg.train_samples, split="train", seed=cfg.dataset_seed, config=data_cfg
-        )
+        ),
+        arch.normalization,
     )
     val_ds = TensorDatasetWrapper(
         SyntheticSegmentationDataset(
             count=cfg.val_samples, split="val", seed=cfg.dataset_seed, config=data_cfg
-        )
+        ),
+        arch.normalization,
     )
 
     num_workers = safe_num_workers(cfg.num_workers)
@@ -256,7 +292,7 @@ def train(cfg: TrainConfig) -> dict[str, Any]:
         drop_last=False,
     )
 
-    model = ARCHITECTURES[cfg.variant]().to(device)
+    model = arch.build().to(device)
     if cfg.channels_last:
         # 1.4x faster training steps on this 8-core CPU: oneDNN has NHWC kernels for
         # depthwise convolutions and a slower fallback for NCHW. Same layout is used
@@ -282,7 +318,7 @@ def train(cfg: TrainConfig) -> dict[str, Any]:
         betas=(0.9, 0.999),
     )
 
-    criterion = SegmentationLoss(cfg.loss)
+    criterion = SegmentationLoss(cfg.loss, gradient_output_index=arch.gradient_output_index)
     use_scaler = precision == "fp16" and device.type == "cuda"
     scaler = torch.amp.GradScaler(device.type, enabled=use_scaler)
 
@@ -291,8 +327,9 @@ def train(cfg: TrainConfig) -> dict[str, Any]:
 
     history: list[dict[str, Any]] = []
     best_iou = -1.0
-    best_path = cfg.output_dir / f"cutoutnet-{cfg.variant}.pt"
-    cfg.output_dir.mkdir(parents=True, exist_ok=True)
+    best_mae = 1.0
+    best_path = cfg.checkpoint_path()
+    best_path.parent.mkdir(parents=True, exist_ok=True)
     cfg.run_dir.mkdir(parents=True, exist_ok=True)
 
     global_step = 0
@@ -359,16 +396,20 @@ def train(cfg: TrainConfig) -> dict[str, Any]:
 
         if val_metrics["val_iou"] > best_iou:
             best_iou = val_metrics["val_iou"]
+            best_mae = val_metrics["val_mae"]
             torch.save(
                 {
                     "state_dict": model.state_dict(),
-                    "variant": cfg.variant,
+                    "arch": cfg.arch,
                     "param_count": param_count,
                     "epoch": epoch + 1,
                     "val_iou": best_iou,
                     "val_mae": val_metrics["val_mae"],
                     "config": cfg.as_dict(),
-                    "normalization": {"mean": TensorDatasetWrapper.MEAN, "std": TensorDatasetWrapper.STD},
+                    "normalization": {
+                        "mean": list(arch.normalization[0]),
+                        "std": list(arch.normalization[1]),
+                    },
                 },
                 best_path,
             )
@@ -378,25 +419,35 @@ def train(cfg: TrainConfig) -> dict[str, Any]:
     checkpoint_bytes = best_path.stat().st_size if best_path.is_file() else 0
 
     run = {
-        "run_id": f"cutoutnet-{cfg.variant}-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}",
+        "run_id": f"{cfg.arch}-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}",
+        "arch": cfg.arch,
+        "serves_as": arch.serves_as,
         "config": cfg.as_dict(),
         "param_count": param_count,
         "device": str(device),
+        "device_name": describe_device(device).name,
         "precision": precision,
         "torch_version": torch.__version__,
         "torch_threads": torch.get_num_threads(),
+        "dataset": train_ds.base.manifest(
+            {"train": cfg.train_samples, "val": cfg.val_samples}
+        ).as_dict(),
+        "normalization": {
+            "mean": list(arch.normalization[0]),
+            "std": list(arch.normalization[1]),
+        },
         "total_seconds": round(total_seconds, 2),
         "best_val_iou": round(best_iou, 6),
+        "best_val_mae": round(best_mae, 6),
         "checkpoint": str(best_path),
         "checkpoint_bytes": checkpoint_bytes,
         "history": history,
     }
     run_path = cfg.run_dir / f"{run['run_id']}.json"
     run_path.write_text(json.dumps(run, indent=2) + "\n")
-    # A stable filename so docs and the Makefile can reference the latest curve.
-    (cfg.run_dir / f"cutoutnet-{cfg.variant}-latest.json").write_text(
-        json.dumps(run, indent=2) + "\n"
-    )
+    # A stable filename so docs and the report generator can find the latest curve
+    # for an architecture without globbing timestamps.
+    (cfg.run_dir / f"{cfg.arch}-latest.json").write_text(json.dumps(run, indent=2) + "\n")
     log.info(
         "train_done",
         seconds=round(total_seconds, 1),
@@ -409,13 +460,20 @@ def train(cfg: TrainConfig) -> dict[str, Any]:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="Train CutoutNet on the synthetic dataset")
-    p.add_argument("--variant", default="small", choices=sorted(ARCHITECTURES))
+    p = argparse.ArgumentParser(
+        description="Train a CutoutML architecture on the synthetic dataset"
+    )
+    p.add_argument("--arch", default=DEFAULT_ARCH, choices=sorted(ARCHITECTURES))
     p.add_argument("--epochs", type=int, default=8)
     p.add_argument("--batch-size", type=int, default=16)
     p.add_argument("--train-samples", type=int, default=3072)
     p.add_argument("--val-samples", type=int, default=192)
-    p.add_argument("--resolution", type=int, default=256)
+    p.add_argument(
+        "--resolution",
+        type=int,
+        default=None,
+        help="input size; defaults to the architecture's design resolution",
+    )
     p.add_argument("--lr", type=float, default=3e-3)
     p.add_argument("--seed", type=int, default=1337)
     p.add_argument("--num-workers", type=int, default=6)
@@ -424,19 +482,25 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--torch-threads", type=int, default=0)
     p.add_argument("--ssim-weight", type=float, default=0.0)
     p.add_argument("--edge-weight", type=float, default=0.5)
-    p.add_argument("--output-dir", type=Path, default=None)
+    p.add_argument(
+        "--output-dir",
+        type=Path,
+        default=None,
+        help="override the checkpoint directory (default: the path the adapter loads)",
+    )
     return p
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    arch = resolve_arch(args.arch)
     cfg = TrainConfig(
-        variant=args.variant,
+        arch=args.arch,
         epochs=args.epochs,
         batch_size=args.batch_size,
         train_samples=args.train_samples,
         val_samples=args.val_samples,
-        resolution=args.resolution,
+        resolution=args.resolution or arch.default_resolution,
         lr=args.lr,
         seed=args.seed,
         num_workers=args.num_workers,
@@ -444,9 +508,8 @@ def main(argv: list[str] | None = None) -> int:
         precision=args.precision,
         torch_threads=args.torch_threads,
         loss=LossWeights(ssim=args.ssim_weight, edge=args.edge_weight),
+        output_dir=args.output_dir,
     )
-    if args.output_dir is not None:
-        cfg.output_dir = args.output_dir
     train(cfg)
     return 0
 

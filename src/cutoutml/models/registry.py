@@ -140,9 +140,11 @@ def get_model(
         **spec.options,
         **overrides,
     }
-    if spec.requires_weights and "onnx_path" not in kwargs and "engine_path" not in kwargs:
-        kwargs["weights_path"] = resolved_weights
-    elif resolved_weights is not None and "weights_path" not in kwargs and spec.requires_weights:
+    # Runtime adapters (ONNX, TensorRT) locate their artefact through onnx_path /
+    # engine_path and have no state dict to load, so passing weights_path would only
+    # give them a second, contradictory source of truth.
+    serialised_runtime = "onnx_path" in kwargs or "engine_path" in kwargs
+    if spec.requires_weights and not serialised_runtime:
         kwargs["weights_path"] = resolved_weights
 
     model = cls(**kwargs)
@@ -189,6 +191,25 @@ register(
         description="0.3M-parameter CutoutNet for measuring the latency floor.",
         tags=("fast",),
         options={"variant": "tiny"},
+    )
+)
+
+register(
+    ModelSpec(
+        name="cutoutnet-base",
+        adapter="cutoutml.models.cutoutnet.adapter.CutoutNetAdapter",
+        architecture="CutoutNet-base",
+        input_size=(256, 256),
+        license="MIT (original architecture and weights, this repository)",
+        source="https://github.com/BruceMoseti/cutout-ml",
+        default_weights="cutoutnet/cutoutnet-base.pt",
+        supports_random_init=True,
+        description=(
+            "4.3M-parameter CutoutNet. Trained on exactly the same data budget as "
+            "cutoutnet-small, so the pair isolates capacity from everything else."
+        ),
+        tags=("high-accuracy", "trained-in-repo"),
+        options={"variant": "base"},
     )
 )
 
@@ -241,13 +262,21 @@ register(
         name="u2net-lite",
         adapter="cutoutml.models.u2net.adapter.U2NetAdapter",
         architecture="U2Net-lite",
-        input_size=(320, 320),
-        license="Apache-2.0 (upstream architecture and published weights)",
+        input_size=(256, 256),
+        license=(
+            "Architecture: Apache-2.0 (Qin et al., independently reimplemented). "
+            "Weights: MIT, trained in this repository on the synthetic dataset."
+        ),
         source="https://github.com/xuebinqin/U-2-Net",
-        default_weights="u2net/u2netp.pth",
+        default_weights="u2net/u2net-lite.pt",
         supports_random_init=True,
-        description="U^2-Net-P, the 1.1M-parameter variant. Weights are not bundled.",
-        tags=("needs-weights",),
+        description=(
+            "U^2-Net-P, the 1.1M-parameter nested-U variant, trained in-repo. Almost "
+            "the same parameter count as cutoutnet-small with a very different "
+            "compute profile, which is what makes the comparison informative. The "
+            "official u2netp.pth also loads here (keys are remapped)."
+        ),
+        tags=("trained-in-repo",),
         options={"variant": "lite"},
     )
 )
