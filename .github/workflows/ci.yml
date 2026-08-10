@@ -68,11 +68,10 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
-      # ffmpeg is installed even for the unit job: the encoder-argument and
-      # alpha-capability tests shell out to it, and skipping them here would mean the
-      # video path is only ever checked in the integration job.
-      - name: Install ffmpeg
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      # Deliberately no ffmpeg, no Postgres and no Redis. Every test that needs one is
+      # marked ``integration`` and runs in the job below, so omitting them here turns
+      # "the unit suite touches nothing external" from a convention into something the
+      # job would fail if it stopped being true.
       - run: pip install -e '.[api,onnx,dev]'
 
       - name: Eval-set fingerprint matches the committed manifest
@@ -150,7 +149,6 @@ jobs:
         run: python scripts/check_migration_drift.py
 
       - name: Run integration tests
-        # -p no:randomly keeps ordering stable; these tests create and drop databases.
         run: pytest -q -m integration -rs | tee integration.log
 
       - name: Fail if every integration test skipped
