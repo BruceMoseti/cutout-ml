@@ -59,9 +59,27 @@ library that both import.
                          └──────────────────────────────────────┘
 ```
 
-The dependency direction is strict: `services/*` imports `cutoutml`, never the reverse,
-and the API imports neither torch nor any adapter. That is what keeps the API image small
-and its boot time independent of the model catalogue.
+The dependency direction is strict: `services/*` imports `cutoutml`, never the reverse.
+The API goes further — importing it pulls in none of torch, onnxruntime, OpenCV or even
+numpy, so its boot time is independent of the model catalogue. Measured on the
+benchmark machine, `import services.api.app.main` takes **0.68 s**; before the boundary
+was enforced it took **1.49 s**, because two package `__init__` files re-exported
+eagerly and torch alone accounted for 0.70 s of it.
+
+This is a property that one convenient top-level import destroys silently, so it is
+asserted rather than described: `tests/test_api_import_boundary.py` imports the API in a
+fresh interpreter and fails if any of those four modules appears in `sys.modules`. The
+mechanism is a split between naming a thing and running it — `cutoutml.core.precision`
+and `cutoutml.models.spec` hold the declarative half (a `Literal`, three dataclasses, a
+file hash) and `cutoutml.core.devices` and `cutoutml.models.base` hold the half that
+needs a framework. The registry imports only the former; torch arrives when
+`get_model()` imports an adapter, and not before.
+
+What this does **not** do is shrink the API image. `cutoutml` declares torch as a hard
+dependency because the worker shares the package, so `docker/api.Dockerfile` still
+installs it — from the CPU wheel index, which is roughly a tenth of the size of the
+default CUDA build. The win here is process boot time and resident memory, not bytes on
+disk; splitting the distribution so an API image could omit torch entirely is unstarted.
 
 ## Request lifecycle
 
@@ -110,10 +128,14 @@ second — a 30 fps two-minute clip would otherwise be 3,600 `UPDATE`s.
 
 ## Why the boundaries are where they are
 
-**The API never loads a model.** Loading is 50–500 ms and pins memory; on a GPU it pins
-VRAM. Doing it per request is unaffordable, and doing it once per API process means every
-API replica needs a GPU. So the API's knowledge of models is limited to the registry's
-declarative specs, which import nothing.
+**The API never loads a model.** Cold start in the recorded run ranges from **18 ms** for
+a small ONNX graph to **583 ms** for the 44M-parameter U²-Net in PyTorch, and loading
+pins memory for as long as the model is held; on a GPU it pins VRAM. Doing it per request
+is unaffordable, and doing it once per API process means every API replica needs a GPU.
+So the API's knowledge of models is limited to the registry's declarative specs, which
+import nothing. (Cold-start figures are the `cold_start_seconds` field of every case in
+`benchmarks/results/20260810T071109Z-e0c34c05.json`; see [benchmarks.md](benchmarks.md)
+for the machine and its caveats.)
 
 **`runner.py` does not know it is a worker.** `tasks.py` owns Celery — retries, acks,
 routing, time limits. `runner.py` is plain Python over a database session, a storage

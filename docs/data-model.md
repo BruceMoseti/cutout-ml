@@ -19,7 +19,7 @@ An API principal.
 |---|---|---|
 | `id` | `uuid` PK | |
 | `email` | `varchar(320)` unique | 320 = 64 local + `@` + 255 domain, the RFC maximum |
-| `password_hash` | `varchar(255)` | bcrypt, per-hash salt. The plaintext never leaves the request handler. |
+| `password_hash` | `varchar(255)` | bcrypt cost 12, per-hash salt, over a SHA-256 pre-hash so bcrypt's 72-byte limit cannot silently discard entropy. See [security.md](security.md). |
 | `display_name` | `varchar(120)` | |
 | `is_active` | `bool` | Checked on **every** authenticated request, so revocation takes effect without waiting for token expiry |
 | `is_admin` | `bool` | |
