@@ -80,10 +80,15 @@ export function BenchmarkDashboard() {
   const dataset = report.dataset as Record<string, unknown>;
   const config = report.config as Record<string, unknown>;
 
+  const threads = config.threads as number | undefined;
   const provenance: [string, string][] = [
     ['CPU', String(env.cpu_model ?? env.hardware ?? 'unknown')],
     ['Cores', `${env.cpu_count_logical ?? env.cpu_count ?? '?'} logical`],
     ['GPU', String(env.gpu ?? 'none')],
+    [
+      'Threads',
+      threads === undefined ? 'not pinned' : threads === 0 ? 'one per core' : `${threads} per runtime`,
+    ],
     ['torch', String((env.libraries as Record<string, string> | undefined)?.torch ?? '?')],
     ['Commit', String(env.git_commit ?? '?').slice(0, 10) + (env.git_dirty ? ' (dirty)' : '')],
     ['Measured', formatTimestamp(report.created_at)],
@@ -92,6 +97,11 @@ export function BenchmarkDashboard() {
     ['Reps / warmup', `${config.repetitions ?? '?'} / ${config.warmup ?? '?'}`],
     ['Suite duration', formatDuration(report.duration_seconds)],
   ];
+
+  // A row whose timing loop shared the machine is marked in place. The alternative -
+  // a note under the table - is not read by anyone scanning for a latency figure, and
+  // this dashboard would then publish numbers with fewer caveats than the docs do.
+  const contended = rows.filter((row) => row.latency && row.latency_trustworthy === false);
 
   const header: { key: SortKey; label: string; hint?: string }[] = [
     { key: 'name', label: 'Case' },
@@ -189,7 +199,22 @@ export function BenchmarkDashboard() {
                   <td className="table-cell font-mono">
                     {row.accuracy_valid ? formatMetric(row.accuracy?.mae) : <span className="text-ink-500">n/a</span>}
                   </td>
-                  <td className="table-cell font-mono">{formatMs(row.latency?.per_image_p50_ms)}</td>
+                  <td className="table-cell font-mono">
+                    {formatMs(row.latency?.per_image_p50_ms)}
+                    {row.latency && row.latency_trustworthy === false && (
+                      <span
+                        className="ml-1 text-warn"
+                        title={row.load?.summary ?? 'measured while another workload held the CPU'}
+                      >
+                        †
+                      </span>
+                    )}
+                    {row.latency?.threads !== undefined && (
+                      <span className="ml-1 text-[10px] text-ink-500" title="intra-op threads">
+                        /{row.latency.threads}t
+                      </span>
+                    )}
+                  </td>
                   <td className="table-cell font-mono">
                     {formatThroughput(row.latency?.throughput_images_per_second)}
                   </td>
@@ -200,6 +225,23 @@ export function BenchmarkDashboard() {
             </tbody>
           </table>
         </div>
+        {contended.length > 0 && (
+          <p className="border-t border-ink-800/70 px-4 py-3 text-[11px] leading-relaxed text-ink-400">
+            <span className="text-warn">†</span> {contended.length} of {rows.length} rows were timed
+            while another workload held the CPU, so their latency and throughput are upper bounds
+            rather than this hardware&apos;s cost. Hover a marker for the load that was measured. The
+            accuracy columns are unaffected: they are deterministic in the weights and the eval set.
+          </p>
+        )}
+        {threads === 1 && (
+          <p className="border-t border-ink-800/70 px-4 py-3 text-[11px] leading-relaxed text-ink-400">
+            Latency is <strong className="text-ink-200">single-threaded</strong> — a per-core cost
+            that a dedicated machine would beat. On a box running other tenants, more threads made
+            PyTorch dramatically slower rather than faster, because every parallel region ends in a
+            barrier that waits on a descheduled worker. One thread has no barriers to lose, so it is
+            the only figure here that reproduces.
+          </p>
+        )}
       </div>
 
       {reports.data && reports.data.length > 1 && (

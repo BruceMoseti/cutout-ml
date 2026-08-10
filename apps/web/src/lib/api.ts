@@ -152,7 +152,21 @@ export interface BenchmarkCaseResult {
   stage_timings_ms: Record<string, number> | null;
   notes: string;
   error: string | null;
+  /**
+   * False when another workload held the CPU during this row's timing loop, making its
+   * latency an upper bound. Optional because runs recorded before the harness measured
+   * contention have no answer, and defaulting those to `true` would invent one.
+   */
+  latency_trustworthy?: boolean | null;
+  load?: {
+    external_busy_cores: number;
+    logical_cpus: number;
+    quiet: boolean;
+    summary: string;
+  } | null;
   latency: {
+    /** Intra-op threads the runtime ran at. A CPU latency without it is uninterpretable. */
+    threads?: number;
     p50_ms: number;
     p95_ms: number;
     p99_ms: number;
