@@ -94,6 +94,9 @@ class SegmentationModel(abc.ABC):
         self.random_init = random_init
         self._loaded = False
         self._load_seconds: float | None = None
+        #: Whatever the checkpoint recorded about where it came from, empty for one that
+        #: recorded nothing. See :func:`load_checkpoint` for why this is worth keeping.
+        self._weights_provenance: dict[str, Any] = {}
 
     # ------------------------------------------------------------------ loading
 
@@ -234,6 +237,12 @@ class SegmentationModel(abc.ABC):
             "device_name": info.name,
             "weights_path": str(self.weights_path) if self.weights_path else None,
             "weights_sha256": weights_digest(self.weights_path),
+            # The digest of what this checkpoint was converted from, when it was converted
+            # from anything. This is the identity a reader can reproduce: converting the
+            # same ONNX twice yields two files with two digests and identical weights, so
+            # `weights_sha256` alone cannot tell "these are different weights" from "this
+            # was converted on a different afternoon".
+            "weights_source_sha256": self._weights_provenance.get("source_sha256"),
             "randomly_initialized": self.random_init,
             "accuracy_valid": not self.random_init,
         }
@@ -295,7 +304,9 @@ class TorchSegmentationModel(SegmentationModel):
         module = self.build_module()
         if not self.random_init:
             path = self.resolve_weights_path()
-            state = self.transform_state_dict(load_state_dict(path, map_location="cpu"))
+            loaded, provenance = load_checkpoint(path, map_location="cpu")
+            self._weights_provenance = provenance
+            state = self.transform_state_dict(loaded)
             missing, unexpected = module.load_state_dict(state, strict=False)
             if missing or unexpected:
                 log.warning(
@@ -436,15 +447,30 @@ class _SingleOutputWrapper(torch.nn.Module):
         return out[0] if isinstance(out, (tuple, list)) else out
 
 
-def load_state_dict(path: Path | str, map_location: str = "cpu") -> dict[str, torch.Tensor]:
-    """Load a checkpoint, unwrapping the common container shapes.
+def load_checkpoint(
+    path: Path | str, map_location: str = "cpu"
+) -> tuple[dict[str, torch.Tensor], dict[str, Any]]:
+    """Load a checkpoint, unwrapping the common container shapes, with its provenance.
 
     ``weights_only=True`` is passed so a malicious checkpoint cannot execute
     arbitrary code during unpickling - relevant because weights may be
     user-supplied via the ``models/`` directory.
+
+    The provenance block is returned rather than dropped because for a converted
+    checkpoint it holds the only reproducible identity the file has. A ``.pt`` written
+    by :mod:`cutoutml.models.u2net.from_onnx` is not bit-reproducible - ``torch.save``
+    does not promise identical bytes for identical tensors - so its own SHA-256 names one
+    local conversion. Re-run the conversion and the digest changes while the weights do
+    not, which makes a published benchmark row look stale when it is not. The digest of
+    the ONNX file it was converted from does not move, and that file is downloaded
+    against a pinned digest.
     """
     ckpt = torch.load(str(path), map_location=map_location, weights_only=True)
+    provenance: dict[str, Any] = {}
     if isinstance(ckpt, dict):
+        recorded = ckpt.get("provenance")
+        if isinstance(recorded, dict):
+            provenance = recorded
         for key in ("state_dict", "model_state_dict", "model", "weights"):
             inner = ckpt.get(key)
             if isinstance(inner, dict):
@@ -452,4 +478,9 @@ def load_state_dict(path: Path | str, map_location: str = "cpu") -> dict[str, to
                 break
     if not isinstance(ckpt, dict):
         raise ValueError(f"checkpoint at {path} did not contain a state dict")
-    return {k.removeprefix("module."): v for k, v in ckpt.items()}
+    return {k.removeprefix("module."): v for k, v in ckpt.items()}, provenance
+
+
+def load_state_dict(path: Path | str, map_location: str = "cpu") -> dict[str, torch.Tensor]:
+    """The tensors alone, for callers with no use for the provenance block."""
+    return load_checkpoint(path, map_location=map_location)[0]

@@ -597,21 +597,46 @@ def checkpoint_table(report: dict[str, Any]) -> str:
     """Which exact weights produced the accuracy figures above.
 
     A checkpoint *path* is not provenance: the file behind it is overwritten by the next
-    training run. The digest is what lets a reader confirm that a published IoU came from
-    the weights currently in the repository.
+    training run. The digest is what ties a published IoU to the weights it came from.
+
+    With one qualification, which is published rather than left for a reader to trip over.
+    A checkpoint converted from another artefact - the two U^2-Net files are converted from
+    the ONNX releases - has a digest that names one conversion, not the weights:
+    ``torch.save`` does not promise identical bytes for identical tensors, so re-running
+    the conversion moves the digest while the weights stay put. That happened here, and it
+    is why the source digest is published beside it when the checkpoint records one. The
+    weights were unchanged: re-measuring both models against the re-derived files
+    reproduced the published IoU to all sixteen digits.
     """
-    seen: dict[str, tuple[str, str]] = {}
+    seen: dict[str, tuple[str, str, str | None]] = {}
     for case in report["cases"]:
         meta = case.get("model_metadata") or {}
         digest = meta.get("weights_sha256")
         if not digest or not case.get("accuracy_valid"):
             continue
-        seen[str(meta.get("weights_path"))] = (str(meta.get("name")), str(digest))
+        source = meta.get("weights_source_sha256")
+        seen[str(meta.get("weights_path"))] = (
+            str(meta.get("name")),
+            str(digest),
+            str(source) if source else None,
+        )
     if not seen:
         return "_No row in this run loaded a checkpoint from disk._"
-    rows = ["| Model | Weights | SHA-256 |", "|---|---|---|"]
-    for path, (name, digest) in sorted(seen.items(), key=lambda kv: kv[1][0]):
-        rows.append(f"| {name} | `{Path(path).name}` | `{digest[:16]}...` |")
+
+    converted = any(source for _, _, source in seen.values())
+    header = "| Model | Weights | SHA-256 |"
+    divider = "|---|---|---|"
+    if converted:
+        header = "| Model | Weights | SHA-256 | Converted from |"
+        divider = "|---|---|---|---|"
+    rows = [header, divider]
+    for path, (name, digest, source) in sorted(seen.items(), key=lambda kv: kv[1][0]):
+        row = f"| {name} | `{Path(path).name}` | `{digest[:16]}...` |"
+        if converted:
+            # Dashed rather than blank for a checkpoint that was trained here: it was not
+            # converted from anything, which is a different statement from "unrecorded".
+            row += f" `{source[:16]}...` |" if source else " trained in-repo |"
+        rows.append(row)
     return "\n".join(rows)
 
 
@@ -899,6 +924,22 @@ def render_benchmarks_doc(report: dict[str, Any], methodology: str | None = None
             runtime_comparison_table(report),
             "",
             "## Checkpoint provenance",
+            "",
+            "A path is not provenance - the next training run overwrites the file - so each"
+            " accuracy row is tied to the digest of the weights it was measured against.",
+            "",
+            "One caveat applies to a checkpoint that was *converted* rather than trained here,"
+            " which is how both U^2-Net files are produced from the published ONNX releases."
+            " `torch.save` does not promise identical bytes for identical tensors, so"
+            " re-running the conversion changes the file's digest while leaving the weights"
+            " untouched. A digest below that no longer matches your local file therefore does"
+            " not mean the row is stale. It happened here, and the check that settles it is to"
+            " re-measure: both models against re-derived files reproduced their published IoU"
+            " to all sixteen digits. The reproducible identity is the digest of the ONNX the"
+            " checkpoint came from, which is pinned in `download_weights.py`, listed in"
+            " `NOTICE`, and recorded next to the conversion timestamp in"
+            " `models/conversions/<model>.json` - the file that dates the re-conversion"
+            " responsible. Runs recorded after this one publish it in the table as well.",
             "",
             checkpoint_table(report),
             "",

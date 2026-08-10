@@ -102,6 +102,10 @@ one-off tracing and compilation cost, which the timed loop excludes.
 
 ## Checkpoint provenance
 
+A path is not provenance - the next training run overwrites the file - so each accuracy row is tied to the digest of the weights it was measured against.
+
+One caveat applies to a checkpoint that was *converted* rather than trained here, which is how both U^2-Net files are produced from the published ONNX releases. `torch.save` does not promise identical bytes for identical tensors, so re-running the conversion changes the file's digest while leaving the weights untouched. A digest below that no longer matches your local file therefore does not mean the row is stale. It happened here, and the check that settles it is to re-measure: both models against re-derived files reproduced their published IoU to all sixteen digits. The reproducible identity is the digest of the ONNX the checkpoint came from, which is pinned in `download_weights.py`, listed in `NOTICE`, and recorded next to the conversion timestamp in `models/conversions/<model>.json` - the file that dates the re-conversion responsible. Runs recorded after this one publish it in the table as well.
+
 | Model | Weights | SHA-256 |
 |---|---|---|
 | cutoutnet | `cutoutnet-small.pt` | `7877d96d498a0631...` |

@@ -95,6 +95,10 @@ class ModelMetadata:
     weights_sha256: str | None
     randomly_initialized: bool
     accuracy_valid: bool
+    #: For a checkpoint converted from another artefact, the digest of that artefact.
+    #: ``weights_sha256`` names one conversion of it and does not survive re-conversion,
+    #: so this is the digest a benchmark row can be checked against later.
+    weights_source_sha256: str | None = None
     notes: str = ""
 
     def as_dict(self) -> dict[str, Any]:

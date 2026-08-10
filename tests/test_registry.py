@@ -518,6 +518,35 @@ def test_weightless_models_report_no_digest_rather_than_a_hash_of_nothing():
     assert get_model("trivial-center", device="cpu").metadata().weights_sha256 is None
 
 
+def test_a_converted_checkpoint_reports_the_digest_of_what_it_was_converted_from():
+    """The only identity a converted checkpoint has that survives re-conversion.
+
+    `torch.save` does not promise identical bytes for identical tensors, so re-deriving
+    `u2net.pt` from the same ONNX produces a file with a different `weights_sha256` and
+    exactly the same weights. That happened between two benchmark runs here, and it made
+    a published row look as though it had been measured against weights that were no
+    longer present. The conversion already records the source digest inside the
+    checkpoint; this asserts it reaches the metadata, which is what a benchmark row can
+    be checked against later.
+    """
+    sidecar_path = REPO_ROOT / "models" / "conversions" / "u2net.json"
+    if not weights_available(resolve_spec("u2net")) or not sidecar_path.is_file():
+        pytest.skip("u2net weights are not present, so no conversion can be inspected")
+
+    meta = get_model("u2net", device="cpu").metadata()
+    sidecar = json.loads(sidecar_path.read_text(encoding="utf-8"))
+
+    assert meta.weights_source_sha256 == sidecar["source_sha256"]
+    # And it is the ONNX's digest, not a restatement of the checkpoint's own.
+    assert meta.weights_source_sha256 != meta.weights_sha256
+
+
+def test_a_checkpoint_trained_here_reports_no_source_digest():
+    """`None` means "not converted from anything", which the table prints as such rather
+    than leaving a reader to read a blank cell as missing data."""
+    assert get_model("cutoutnet", device="cpu").metadata().weights_source_sha256 is None
+
+
 def test_the_onnx_adapter_hashes_the_graph_it_runs_not_the_checkpoint_it_ignores():
     model = get_model("cutoutnet-onnx", device="cpu")
     meta = model.metadata()
