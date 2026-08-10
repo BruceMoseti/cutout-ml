@@ -11,7 +11,7 @@ import datetime as dt
 import uuid
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
 Precision = Literal["fp32", "fp16", "bf16"]
 ImageOutput = Literal[
@@ -164,7 +164,13 @@ class ProcessImageOptions(BaseModel):
 
 class ProcessVideoOptions(BaseModel):
     mode: VideoMode = "composite"
-    container: Literal["mp4", "webm", "mov", "qtrle"] = "mp4"
+    container: Literal["mp4", "webm", "mov", "qtrle"] | None = Field(
+        default=None,
+        description=(
+            "Output container. Defaults to mp4 for composite/mask output and webm "
+            "(VP9 with alpha) for mode='transparent', since mp4 cannot carry alpha."
+        ),
+    )
     background_color: tuple[int, int, int] = (0, 177, 64)
     background_asset_id: uuid.UUID | None = None
     blur_background: bool = False
@@ -177,6 +183,22 @@ class ProcessVideoOptions(BaseModel):
     crf: int = Field(default=23, ge=0, le=63)
     keep_audio: bool = True
     measure_flicker: bool = False
+
+    @model_validator(mode="after")
+    def _default_container_for_mode(self) -> ProcessVideoOptions:
+        """Pick a container that can actually carry what ``mode`` asks for.
+
+        A single ``container="mp4"`` default made ``{"mode": "transparent"}`` - the most
+        obvious way to ask for a transparent video - fail validation every time, telling
+        the caller that mp4 cannot carry alpha when they never asked for mp4. The default
+        now follows the mode: WebM/VP9 for transparency (the only alpha container
+        browsers play), mp4 otherwise. An explicit container is still honoured and still
+        rejected if it contradicts the mode, so ``{"mode":"transparent","container":"mp4"}``
+        remains an error rather than being silently rewritten.
+        """
+        if self.container is None:
+            self.container = "webm" if self.mode == "transparent" else "mp4"
+        return self
 
 
 class ProcessRequest(BaseModel):

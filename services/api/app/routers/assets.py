@@ -59,6 +59,7 @@ from services.api.app.uploads import (
     UploadValidationError,
     content_hash,
     safe_filename,
+    sniff,
     validate_upload,
 )
 
@@ -71,6 +72,57 @@ _EXTENSION_BY_KIND = {"image": "png", "video": "mp4"}
 
 def _as_api_error(exc: UploadValidationError) -> ApiError:
     return ApiError(exc.status_code, exc.code, str(exc))
+
+
+def _record_video_properties(asset: Asset, data: bytes, settings: SettingsDep) -> None:
+    """Fill in a video asset's dimensions, duration, frame count and fps.
+
+    Images get these from the PIL header read during validation, but a video's properties
+    need ffprobe, which wants a path rather than a buffer - hence the temp file. Without
+    this an uploaded video reports ``width: null`` all the way to the UI, which then
+    cannot show a duration or estimate how long a job will take.
+
+    A probe failure is logged and left as ``None`` rather than rejecting the upload: the
+    bytes are already stored and already passed magic-byte validation, and the worker
+    probes again anyway before decoding. Losing the metadata degrades the UI; refusing
+    the upload would lose the asset.
+    """
+    import tempfile
+
+    from cutoutml.pipelines.ffmpeg import FFmpegError, probe
+
+    with tempfile.NamedTemporaryFile(suffix=".bin") as handle:
+        handle.write(data)
+        handle.flush()
+        try:
+            info = probe(handle.name, ffprobe=settings.ffprobe_binary)
+        except (FFmpegError, OSError) as exc:
+            log.warning(
+                "video_probe_failed",
+                asset_id=str(asset.id),
+                error_type=type(exc).__name__,
+                error=str(exc)[:300],
+            )
+            return
+
+    asset.width = info.width or None
+    asset.height = info.height or None
+    asset.duration_seconds = info.duration_seconds or None
+    asset.frame_count = info.frame_count or None
+    asset.fps = info.fps or None
+
+
+def _sniff_kind(data: bytes) -> str:
+    """Decide whether a payload is an image or a video from its magic bytes.
+
+    Falls back to ``"image"`` for an unrecognised payload rather than raising, because
+    the full validation in :func:`validate_upload` runs immediately afterwards and
+    produces a much better message (naming every supported format) than a bare
+    "unknown kind" would. The fallback only picks which size ceiling applies for the few
+    microseconds before that check rejects the upload anyway.
+    """
+    detected = sniff(data)
+    return detected.kind if detected is not None else "image"
 
 
 def _store_and_finalise(
@@ -117,6 +169,8 @@ def _store_and_finalise(
     asset.size_bytes = len(data)
     asset.width = properties.get("width")
     asset.height = properties.get("height")
+    if detected.kind == "video":
+        _record_video_properties(asset, data, settings)
     session.commit()
 
     metrics.uploads.labels(detected.kind).inc()
@@ -264,11 +318,25 @@ async def upload_asset(
     metrics: MetricsDep,
     user: CurrentUser,
     file: Annotated[UploadFile, File(description="The image or video to upload")],
-    kind: Annotated[str, Form(description="'image' or 'video'")] = "image",
+    kind: Annotated[
+        str | None,
+        Form(description="'image' or 'video'; inferred from the file contents when omitted"),
+    ] = None,
 ) -> AssetResponse:
-    if kind not in {"image", "video"}:
+    """Upload an asset's metadata and bytes in a single multipart request.
+
+    ``kind`` is optional because the content sniffer in :mod:`services.api.app.uploads`
+    is authoritative anyway: it decides the stored extension and it rejects a payload
+    whose real type contradicts a declared ``kind``. Requiring the client to name the
+    kind as well would add a way to be wrong without adding a way to be safer. Passing
+    it explicitly is still honoured, and still enforced, for callers that want an upload
+    to fail loudly when a user picks a video in an image-only flow.
+    """
+    if kind is not None and kind not in {"image", "video"}:
         raise ApiError(status.HTTP_400_BAD_REQUEST, "bad_request", "kind must be image or video")
 
+    # Read against the larger of the two ceilings when the kind is not yet known, then
+    # let validate_upload apply the ceiling for the type it actually detects.
     limit = settings.max_upload_bytes if kind == "image" else settings.max_video_upload_bytes
     data = await file.read(limit + 1)
     if len(data) > limit:
@@ -276,16 +344,17 @@ async def upload_asset(
         raise ApiError(
             status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             "payload_too_large",
-            f"file exceeds the {kind} limit of {limit} bytes",
+            f"file exceeds the {kind or 'upload'} limit of {limit} bytes",
         )
 
+    detected_kind = kind or _sniff_kind(data)
     asset = Asset(
         owner_id=user.id,
-        kind=kind,
+        kind=detected_kind,
         status=AssetStatus.AWAITING_UPLOAD.value,
         storage_backend=storage.backend,
         storage_key=build_storage_key(
-            user_id=str(user.id), kind="uploads", extension=_EXTENSION_BY_KIND[kind]
+            user_id=str(user.id), kind="uploads", extension=_EXTENSION_BY_KIND[detected_kind]
         ),
         original_filename=safe_filename(file.filename),
         content_type=file.content_type,
