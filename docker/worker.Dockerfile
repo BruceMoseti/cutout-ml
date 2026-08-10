@@ -83,8 +83,15 @@ ENV CUTOUTML_TORCH_NUM_THREADS=2
 # `celery inspect ping` actually round-trips through the broker, so it fails when Redis
 # is unreachable or the worker has wedged -- unlike a `pgrep celery` style check, which
 # passes for a hung process.
+# The node name has to match the one the worker registered, and `-n` is overridden per
+# replica in docker-compose.yml (`cpu@%h`, `image@%h`, `video@%h`) so that three workers on
+# one host stay distinguishable. Hardcoding `celery@` here meant the probe asked after a node
+# that never existed and every worker container reported unhealthy -- which nothing noticed
+# until the stack was first brought up. The hostname comes from /proc because a slim image is
+# not guaranteed to carry the `hostname` binary.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD celery -A services.inference.app.celery_app:celery inspect ping -d "celery@$(hostname)" \
+    CMD celery -A services.inference.app.celery_app:celery inspect ping \
+        -d "${CELERY_NODE_PREFIX:-celery}@$(cat /proc/sys/kernel/hostname)" \
         || exit 1
 
 # Queue is overridden per replica in docker-compose.yml; `cpu` is the safe default

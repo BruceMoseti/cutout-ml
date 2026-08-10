@@ -153,6 +153,9 @@ services:
     environment:
       <<: *app-env
       CUTOUTML_TORCH_NUM_THREADS: 2
+      # Must match the `-n` prefix in the command below: the image's health check pings
+      # that node name, and a mismatch reports a working worker as unhealthy.
+      CELERY_NODE_PREFIX: cpu
     depends_on: *app-depends
     command:
       ["celery", "-A", "services.inference.app.celery_app:celery", "worker",
@@ -175,6 +178,9 @@ services:
     environment:
       <<: *app-env
       CUTOUTML_TORCH_NUM_THREADS: 2
+      # Must match the `-n` prefix in the command below: the image's health check pings
+      # that node name, and a mismatch reports a working worker as unhealthy.
+      CELERY_NODE_PREFIX: image
     depends_on: *app-depends
     command:
       ["celery", "-A", "services.inference.app.celery_app:celery", "worker",
@@ -207,6 +213,9 @@ services:
       # parallelism beats running four videos at a quarter speed each, and a 4K clip at
       # concurrency 4 is how a GPU worker OOMs.
       CUTOUTML_TORCH_NUM_THREADS: ${WORKER_VIDEO_THREADS:-4}
+      # Must match the `-n` prefix in the command below: the image's health check pings
+      # that node name, and a mismatch reports a working worker as unhealthy.
+      CELERY_NODE_PREFIX: video
     depends_on: *app-depends
     command:
       ["celery", "-A", "services.inference.app.celery_app:celery", "worker",
