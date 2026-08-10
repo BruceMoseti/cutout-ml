@@ -304,7 +304,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_seg = sub.add_parser("segment", help="segment a single image")
     p_seg.add_argument("input")
-    p_seg.add_argument("-o", "--output", default="out")
+    # A directory, not a file: one run can emit several output kinds, and each is written
+    # as <stem>.<kind>.<ext> inside it.
+    p_seg.add_argument("-o", "--output", default="out", help="output directory (default: ./out)")
     p_seg.add_argument("-m", "--model", default=None)
     p_seg.add_argument("--device", default="auto")
     p_seg.add_argument("--precision", default="fp32", choices=["fp32", "fp16", "bf16"])
@@ -330,7 +332,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_vid = sub.add_parser("video", help="segment a video")
     p_vid.add_argument("input")
-    p_vid.add_argument("-o", "--output", required=True)
+    p_vid.add_argument(
+        "-o",
+        "--output",
+        required=True,
+        help="output file; with --mode frames, a directory to fill or a .zip to write",
+    )
     p_vid.add_argument("-m", "--model", default=None)
     p_vid.add_argument("--device", default="auto")
     p_vid.add_argument("--precision", default="fp32", choices=["fp32", "fp16", "bf16"])
@@ -354,7 +361,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_onnx = sub.add_parser("export-onnx", help="export a model to ONNX")
     p_onnx.add_argument("model")
-    p_onnx.add_argument("-o", "--output", required=True)
+    p_onnx.add_argument("-o", "--output", required=True, help="destination .onnx file")
     p_onnx.add_argument("--opset", type=int, default=17)
     p_onnx.add_argument("--static-batch", action="store_true")
     p_onnx.set_defaults(func=cmd_export_onnx)
