@@ -479,8 +479,39 @@ def container_supports_alpha(container: str) -> bool:
     return container.lower().lstrip(".") in {"webm", "vp9", "mov", "prores", "qtrle"}
 
 
-def _decode_alpha_range(path: Path, size: tuple[int, int], ffmpeg: str) -> tuple[int, int] | None:
-    """Decode ``path`` to RGBA and return ``(min_alpha, max_alpha)``, or ``None``."""
+ALPHA_DECODER_ARGS: dict[str, tuple[str, ...]] = {
+    "webm": ("-c:v", "libvpx-vp9"),
+    "vp9": ("-c:v", "libvpx-vp9"),
+    "vp8": ("-c:v", "libvpx"),
+}
+"""Containers whose alpha plane is invisible to ffmpeg's *default* decoder.
+
+For VP9-in-WebM the alpha plane lives in Matroska ``BlockAdditional`` side data rather
+than in the video frame, and ffmpeg's native ``vp9`` decoder ignores it: decoding
+without ``-c:v libvpx-vp9`` returns alpha = 255 for every pixel of a genuinely
+transparent file. ProRes and QuickTime RLE keep alpha in the pixel format and need no
+override, which is why they are absent here.
+"""
+
+
+def alpha_decoder_args(container: str) -> tuple[str, ...]:
+    """Decoder flags required to *see* ``container``'s alpha plane, if any.
+
+    These go before ``-i`` on the ffmpeg command line, since they select the decoder
+    for the input rather than describing the output.
+    """
+    return ALPHA_DECODER_ARGS.get(container.lower().lstrip("."), ())
+
+
+def _decode_alpha_range(
+    path: Path, size: tuple[int, int], ffmpeg: str, *, decoder: Sequence[str] = ()
+) -> tuple[int, int] | None:
+    """Decode ``path`` to RGBA and return ``(min_alpha, max_alpha)``, or ``None``.
+
+    ``decoder`` must be passed for WebM: see :data:`ALPHA_DECODER_ARGS`. Without it the
+    caller measures the *decoder's* alpha support rather than the file's, and concludes
+    that a perfectly good transparent WebM is opaque.
+    """
     width, height = size
     proc = subprocess.run(
         [
@@ -489,6 +520,7 @@ def _decode_alpha_range(path: Path, size: tuple[int, int], ffmpeg: str) -> tuple
             "-loglevel",
             "error",
             "-nostdin",
+            *decoder,
             "-i",
             str(path),
             "-f",
@@ -510,12 +542,19 @@ def _decode_alpha_range(path: Path, size: tuple[int, int], ffmpeg: str) -> tuple
 def alpha_roundtrip_works(container: str, ffmpeg: str = "ffmpeg") -> bool:
     """Encode a two-frame half-transparent clip and check the alpha survives.
 
-    This exists because a codec advertising ``yuva420p`` in
-    ``ffmpeg -h encoder=...`` does **not** mean the muxer will write the alpha
-    plane. On the machine these benchmarks were produced on (ffmpeg 6.1.1, Ubuntu
-    24.04 libvpx) both ``libvpx-vp9`` and ``libvpx`` accept ``-pix_fmt yuva420p``,
-    exit 0, and emit a fully opaque file. Trusting the codec table there would mean
-    handing users a "transparent" video with no transparency in it.
+    This exists because a codec advertising ``yuva420p`` in ``ffmpeg -h encoder=...``
+    does **not** mean the muxer will write the alpha plane, and a build that drops it
+    still exits 0. Promising a caller transparency on the strength of the codec table
+    risks handing them a "transparent" video with no transparency in it, so the
+    capability is measured instead: encode a clip whose left half is fully transparent
+    and whose right half is opaque, decode it back, and require both extremes to
+    survive. A uniform plane would not distinguish real alpha from a codec that writes
+    a constant.
+
+    The decode step forces an alpha-aware decoder via :func:`alpha_decoder_args`.
+    Omitting that is the trap this function is most likely to fall into: ffmpeg's
+    native ``vp9`` decoder silently ignores WebM's alpha side data, so the probe would
+    report "alpha dropped" for a file that is in fact fully transparent.
 
     The probe is a real encode/decode of a 32x32x2-frame clip - a few milliseconds -
     and is cached per process, so readiness checks and job validation can call it
@@ -575,7 +614,7 @@ def _alpha_roundtrip_works(container: str, ffmpeg: str) -> bool:
                 stderr=proc.stderr.decode("utf-8", "replace")[-400:],
             )
             return False
-        observed = _decode_alpha_range(out, size, binary)
+        observed = _decode_alpha_range(out, size, binary, decoder=alpha_decoder_args(container))
 
     if observed is None:
         return False
@@ -592,13 +631,6 @@ def working_alpha_containers(ffmpeg: str = "ffmpeg") -> list[str]:
     is unavailable at deploy time rather than from a user's complaint.
     """
     return [c for c in ALPHA_CONTAINERS if alpha_roundtrip_works(c, ffmpeg)]
-
-
-ALPHA_DECODER_ARGS: dict[str, list[str]] = {
-    "vp9": ["-c:v", "libvpx-vp9"],
-    "vp8": ["-c:v", "libvpx"],
-}
-"""Decoders that must be forced to see a WebM alpha plane. See :func:`has_alpha`."""
 
 
 def has_alpha(path: Path | str, *, ffprobe: str = "ffprobe") -> bool:
