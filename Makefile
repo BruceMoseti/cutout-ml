@@ -52,7 +52,12 @@ test: ## Unit tests (no external services required)
 test-integration: ## Tests that need Postgres, Redis and ffmpeg
 	$(PYTHON) -m pytest -q -m integration
 
-check: lint typecheck test ## Everything CI runs for the Python tree
+check-generated: ## Verify the generated artefacts are in step with their sources
+	$(PYTHON) scripts/eval_data.py --verify
+	$(PYTHON) -m cutoutml.benchmarks.render_report
+	git diff --exit-code -- docs/benchmarks.md README.md
+
+check: lint typecheck test check-generated ## Every CI check that needs no services
 
 # --------------------------------------------------------------------- models
 

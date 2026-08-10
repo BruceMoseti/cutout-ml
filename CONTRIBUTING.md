@@ -29,18 +29,36 @@ web console and the whole test suite work immediately after a clone.
 ## The checks that must pass
 
 ```bash
-make check       # ruff lint + ruff format --check + mypy + pytest
+make check       # lint + typecheck + test + check-generated
 ```
 
-CI runs exactly these plus the frontend and a Docker build. Individually:
+That is every CI check that needs no external services. Individually:
 
 ```bash
 make lint                                  # ruff check . && ruff format --check .
 make typecheck                             # mypy
 make test                                  # pytest -m 'not integration'
+make check-generated                       # eval-set fingerprint + benchmark tables are current
 make test-integration                      # needs Postgres, Redis, ffmpeg
 cd apps/web && npm run lint && npm run typecheck && npm run test && npm run build
 ```
+
+`make check-generated` is the one that catches a class of mistake the others cannot: the
+benchmark tables in the README and `docs/benchmarks.md` are *generated*, so editing them by
+hand, or committing a new results JSON without re-rendering, leaves the prose disagreeing
+with the data. It re-renders and diffs.
+
+Two CI checks need a database and so are not in `make check`:
+
+```bash
+make migrate && .venv/bin/alembic downgrade base && make migrate   # migrations round-trip
+CUTOUTML_DATABASE_URL=postgresql+psycopg://dev:dev@127.0.0.1:5432/cutoutml \
+  .venv/bin/python scripts/check_migration_drift.py                # ORM matches the schema
+```
+
+CI additionally builds all three images from `docker/` and validates
+`docker-compose.yml`. Neither can run without a Docker daemon, which is why the
+Dockerfiles carry a note saying they were reviewed but never built locally.
 
 Formatting is `ruff format` with a 100-column line length. Do not argue with it; run
 `make fmt`.
