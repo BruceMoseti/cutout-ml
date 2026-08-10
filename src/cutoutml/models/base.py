@@ -255,8 +255,10 @@ class TorchSegmentationModel(SegmentationModel):
     Note the deliberate combination in :meth:`predict`: ``model.eval()`` is set
     once at load time (it switches BatchNorm to running statistics and disables
     Dropout), while ``torch.inference_mode()`` wraps each call (it disables
-    autograd bookkeeping and tensor version counters). They are orthogonal -
-    ``docs/inference-optimization.md`` expands on why you need both.
+    autograd bookkeeping and tensor version counters). They are orthogonal, and
+    both are needed: ``eval()`` alone still builds a graph and still tracks
+    versions, and ``inference_mode()`` alone would leave BatchNorm updating its
+    running statistics from whatever batch a request happened to contain.
     """
 
     module: torch.nn.Module | None

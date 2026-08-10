@@ -121,8 +121,8 @@ class TensorDatasetWrapper(Dataset[tuple[torch.Tensor, torch.Tensor]]):
     The normalisation constants come from the architecture registry, which is also
     what the serving adapter declares. If the two ever disagree the model appears to
     train fine and then scores near chance at inference, so there is exactly one
-    source for the constant and ``tests/unit/test_training_architectures.py``
-    asserts the two agree for every registered architecture.
+    source for the constant and ``tests/test_training_architectures.py`` asserts the two
+    agree for every registered architecture.
     """
 
     def __init__(self, base: SyntheticSegmentationDataset, normalization: Normalization) -> None:

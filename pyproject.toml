@@ -150,7 +150,7 @@ module = [
   "celery.*", "kombu.*",
   # TensorRT and its CUDA bindings cannot be installed on a machine without a GPU, so
   # these are unresolvable anywhere this project is developed or tested. The adapter is
-  # written to degrade when the import fails; see docs/decisions/ADR-005-onnx-tensorrt.md.
+  # written to degrade when the import fails; see docs/decisions/ADR-005-onnx-runtime.md.
   "tensorrt.*", "pycuda.*", "cuda.*", "cuda.bindings.*",
 ]
 ignore_missing_imports = true

@@ -109,8 +109,9 @@ what the code does will pass through any refactor, including a wrong one.
 
 1. Adapter subclassing `SegmentationModel` or `TorchSegmentationModel`, implementing
    `preprocess`, `predict`, `postprocess`.
-2. `register(ModelSpec(...))` in `models/registry.py`, with the **licence and upstream
-   source filled in honestly**.
+2. `register(ModelSpec(...))` in `src/cutoutml/models/registry.py`, with the **licence and
+   upstream source filled in honestly**. `tests/test_registry.py` fails a `trained-in-repo`
+   tag with no committed `training/runs/*.json` behind it.
 3. A `BenchmarkCase` in `benchmarks/run.py`.
 4. `make bench` and commit the regenerated results JSON together with the code.
 

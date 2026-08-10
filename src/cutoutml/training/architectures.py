@@ -41,10 +41,19 @@ class TrainableArch:
     normalization: Normalization
     #: Resolution the architecture is designed for; the default for ``--resolution``.
     default_resolution: int
-    #: Registry model name that consumes the checkpoint this run produces.
+    #: Registry model name whose adapter and normalisation this architecture matches, and
+    #: which consumes the produced checkpoint when :attr:`checkpoint_served` is true.
     serves_as: str
     #: Path of the produced checkpoint, relative to the model weights directory.
     checkpoint: str
+    #: Whether the :attr:`serves_as` entry actually loads :attr:`checkpoint`.
+    #:
+    #: False for the two capacity variants that have no registry entry of their own:
+    #: training them writes a file nothing here can serve. That is deliberate - pointing
+    #: them at the entry they are closest to would let a from-scratch checkpoint shadow
+    #: the U^2-Net authors' Apache-2.0 weights on a path the benchmark table labels as
+    #: theirs - but it is a gap, so it is recorded rather than left to be discovered.
+    checkpoint_served: bool = True
     #: Index of an output that predicts the target's *edge map* instead of the mask,
     #: or ``None``. BiRefNet's gradient head is the only such output here.
     gradient_output_index: int | None = None
@@ -101,10 +110,14 @@ ARCHITECTURES: dict[str, TrainableArch] = {
         default_resolution=320,
         serves_as="u2net",
         checkpoint="u2net/u2net-full.pt",
+        checkpoint_served=False,
         cpu_feasible=False,
         notes=(
             "44M parameters. Included for completeness; a useful run needs a GPU, so "
-            "no in-repo checkpoint exists for it."
+            "no in-repo checkpoint exists for it. Its output path is deliberately not "
+            "one the `u2net` entry loads: that entry serves the authors' published "
+            "weights, and a from-scratch checkpoint must not be able to take their "
+            "place under a row labelled as theirs."
         ),
     ),
     "birefnet-compact": TrainableArch(
@@ -128,9 +141,15 @@ ARCHITECTURES: dict[str, TrainableArch] = {
         default_resolution=384,
         serves_as="birefnet",
         checkpoint="birefnet/birefnet-tiny.pt",
+        checkpoint_served=False,
         gradient_output_index=5,
         cpu_feasible=False,
-        notes="Smaller bilateral-reference variant; still GPU territory at 384px.",
+        notes=(
+            "Smaller bilateral-reference variant; still GPU territory at 384px. The "
+            "`birefnet` entry is registered for the compact variant at 512px and loads "
+            "neither this width nor this path, so training it produces a checkpoint no "
+            "registered model serves."
+        ),
     ),
 }
 
