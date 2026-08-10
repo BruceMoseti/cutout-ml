@@ -46,8 +46,19 @@ def _mib(value: int | None) -> str:
 CONTENDED_MARK = " †"
 
 
+def _was_contended(case: dict[str, Any]) -> bool:
+    """Whether this case's *timings* were taken while something else used the CPU.
+
+    Tested against ``False`` rather than for falsiness: a case that produced no timing at
+    all - a skipped one, whose weights were missing - records ``null`` here, and ``not
+    None`` is true, which would report an unmeasured case as a contended one and print the
+    contention legend under a table that has nothing to mark.
+    """
+    return case.get("latency_trustworthy") is False
+
+
 def _contention_mark(case: dict[str, Any]) -> str:
-    return "" if case.get("latency_trustworthy", True) else CONTENDED_MARK
+    return CONTENDED_MARK if _was_contended(case) else ""
 
 
 def _is_thread_sweep(case: dict[str, Any]) -> bool:
@@ -133,7 +144,7 @@ def main_table(report: dict[str, Any]) -> str:
         "weights** so that latency could still be benchmarked without a loadable "
         "checkpoint. Latency in those rows is real; accuracy is meaningless."
     )
-    if any(not c.get("latency_trustworthy", True) for c in report["cases"]):
+    if any(_was_contended(c) for c in report["cases"]):
         rows.append("")
         rows.append(
             "`†` = measured while another workload held the CPU, so the figure is an upper "
@@ -215,29 +226,50 @@ def _sweep_consistency_notes(
             _runtime_label(case, case.get("model_metadata")),
         )
 
-    baseline: dict[tuple[str, int, int, str], float] = {}
+    baseline: dict[tuple[str, int, int, str], dict[str, Any]] = {}
     for case in report["cases"]:
         if case["status"] != "ok" or _is_thread_sweep(case) or not case.get("latency"):
             continue
-        baseline[key(case)] = case["latency"]["p50_ms"]
+        baseline[key(case)] = case
 
     notes: list[str] = []
     for case in sweep:
         spec, lat = case["case"], case["latency"]
         other = baseline.get(key(case))
-        if not other or not lat["p50_ms"]:
+        if other is None or not lat["p50_ms"]:
             continue
-        ratio = max(other, lat["p50_ms"]) / min(other, lat["p50_ms"])
+        other_p50 = other["latency"]["p50_ms"]
+        if not other_p50:
+            continue
+        ratio = max(other_p50, lat["p50_ms"]) / min(other_p50, lat["p50_ms"])
         if ratio < tolerance:
             continue
-        notes.append(
+
+        preamble = (
             f"- **Repeatability**: `{spec['model']}` at {lat['threads']} thread(s) measured "
-            f"{_fmt(lat['p50_ms'], 1)} ms here and {_fmt(other, 1)} ms in the table above - "
-            f"{ratio:.1f}x apart for the same configuration, minutes apart on the same "
-            "machine. Neither figure is wrong; the machine was not the same machine at the "
-            "two moments. This is what the `†` marks mean in practice, and it is the reason "
-            "no single number on this page should be quoted without them."
+            f"{_fmt(lat['p50_ms'], 1)} ms here and {_fmt(other_p50, 1)} ms in the table "
+            f"above - {ratio:.1f}x apart for the same configuration."
         )
+        # Which explanation is true is a question about the recorded load, not a house
+        # style. Attributing a quiet-machine gap to contention would be inventing a cause
+        # that this run's own per-case load samples contradict.
+        if _was_contended(case) or _was_contended(other):
+            notes.append(
+                f"{preamble} At least one of the two was measured while another workload "
+                "held the CPU, which is what the `†` marks record: neither figure is wrong, "
+                "and the machine was not the same machine at the two moments."
+            )
+        else:
+            notes.append(
+                f"{preamble} Both rows sampled an idle machine, so contention does not "
+                "account for it. What differs is where each sat in the run: latency here "
+                "depends measurably on what ran earlier in the same process. "
+                "`benchmarks/order_effect.py` isolates that effect - timing this "
+                "configuration after a larger model, on a quiet machine, reproduces the "
+                "faster figure with a standard deviation under 0.2 ms - and its result is "
+                "archived under `benchmarks/results/experiments/`. Compare rows within "
+                "this sweep, which ran back to back, rather than against the table above."
+            )
     if notes:
         notes.insert(0, "")
     return notes
@@ -792,6 +824,26 @@ from:
    curve. Every row records the thread count the runtime actually ran with, taken from
    the runtime rather than from the request, because ONNX Runtime silently resolves a
    request of 0 to one thread per core.
+
+6. **Position in the run changes the number, and it is not noise.** This suite measures
+   `cutoutnet` eager at batch 1 and one thread twice - once in the main table, once as
+   the one-thread rung of the thread sweep - and on a completely idle machine the two
+   land about 1.5x apart, each with a standard deviation under 0.2 ms. That is not
+   contention (the harness sampled the load before both and both were quiet) and it is
+   not warmup (warmup iterations are discarded from both). It depends on what ran earlier
+   in the same process: `benchmarks/order_effect.py` times the identical configuration
+   after each of several preludes and finds that one particular earlier model reproduces
+   the faster figure while others, including a much more expensive one, change nothing.
+
+   The mechanism is not established here, and two plausible ones were tested and
+   rejected: pre-faulting up to 1 GiB of heap before the timed loop changes nothing, and
+   running a compiled case first changes nothing. What follows for a reader is concrete
+   regardless of the cause - **compare rows that ran near each other**, which is why the
+   thread sweep is a self-contained block rather than figures scattered through the main
+   table, and treat a 1.5x agreement between two distant rows as the floor on this
+   harness's cross-row precision. The experiment's own output, with the per-arm load
+   samples that rule out contention, is archived in
+   `benchmarks/results/experiments/`.
 
 ### What is measured
 
