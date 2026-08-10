@@ -1,0 +1,102 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --font-mono: ui-monospace, 'SFMono-Regular', 'JetBrains Mono', monospace;
+    color-scheme: dark;
+  }
+
+  html {
+    /* Tabular figures everywhere. Latency numbers in a table jitter horizontally
+       between renders with proportional digits, which reads as flicker. */
+    font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body {
+    @apply bg-ink-950 text-ink-100 antialiased;
+    background-image: theme('backgroundImage.grid-fade');
+    background-repeat: no-repeat;
+  }
+
+  ::selection {
+    @apply bg-accent/30 text-white;
+  }
+
+  :focus-visible {
+    @apply outline-none ring-2 ring-accent/70 ring-offset-2 ring-offset-ink-950;
+  }
+
+  /* Firefox and WebKit scrollbars, dimmed so they do not compete with the canvas. */
+  * {
+    scrollbar-color: theme('colors.ink.600') transparent;
+    scrollbar-width: thin;
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-ink-600;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+@layer components {
+  .panel {
+    @apply rounded-xl border border-ink-700/70 bg-ink-900/60 backdrop-blur-sm;
+  }
+
+  .panel-header {
+    @apply flex items-center justify-between gap-3 border-b border-ink-700/70 px-4 py-3;
+  }
+
+  .label {
+    @apply text-[11px] font-medium uppercase tracking-[0.14em] text-ink-400;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium
+      transition-colors disabled:cursor-not-allowed disabled:opacity-45;
+  }
+
+  .btn-primary {
+    @apply btn bg-accent text-ink-950 hover:bg-accent-soft;
+  }
+
+  .btn-ghost {
+    @apply btn border border-ink-700 text-ink-200 hover:border-ink-500 hover:text-white;
+  }
+
+  .field {
+    @apply w-full rounded-lg border border-ink-700 bg-ink-850 px-3 py-2 text-sm text-ink-100
+      placeholder:text-ink-500 focus:border-accent/60;
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full border border-ink-700 bg-ink-850 px-2.5
+      py-1 text-[11px] font-medium text-ink-300;
+  }
+
+  /* The transparency checkerboard. Two conic gradients rather than a PNG so it stays
+     crisp at any device pixel ratio and needs no network request. */
+  .checkerboard {
+    background-image:
+      linear-gradient(45deg, #ffffff0a 25%, transparent 25%, transparent 75%, #ffffff0a 75%),
+      linear-gradient(45deg, #ffffff0a 25%, transparent 25%, transparent 75%, #ffffff0a 75%);
+    background-size: 20px 20px;
+    background-position:
+      0 0,
+      10px 10px;
+    @apply bg-ink-800;
+  }
+
+  .table-cell {
+    @apply whitespace-nowrap px-3 py-2 text-sm;
+  }
+}
