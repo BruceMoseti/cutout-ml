@@ -142,7 +142,7 @@ def cancel_job(job: OwnedJob, session: SessionDep) -> JobResponse:
             from services.inference.app.celery_app import celery
 
             celery.control.revoke(job.celery_task_id, terminate=False)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - the database row is authoritative
             log.warning("job_revoke_failed", job_id=str(job.id), error=str(exc))
 
     return JobResponse.model_validate(job)

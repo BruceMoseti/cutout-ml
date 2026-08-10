@@ -268,7 +268,7 @@ class BenchmarkHarness:
                 error=str(exc),
                 notes="weights unavailable in this environment",
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - one bad case must not abort the suite
             log.warning("benchmark_case_failed", case=case.name, error=str(exc))
             return CaseResult(
                 case=case,

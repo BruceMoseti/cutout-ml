@@ -132,7 +132,7 @@ def gpu_description() -> tuple[str, int, str | None, str | None]:
     try:
         version = torch.backends.cudnn.version()
         cudnn = str(version) if version else None
-    except Exception:  # pragma: no cover
+    except Exception:  # pragma: no cover  # noqa: BLE001 - provenance capture must never fail a run
         cudnn = None
     return (", ".join(names), count, torch.version.cuda, cudnn)
 

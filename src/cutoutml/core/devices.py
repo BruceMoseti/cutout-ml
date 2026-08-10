@@ -57,7 +57,7 @@ def cuda_available() -> bool:
     """True when a usable CUDA device is present."""
     try:
         return bool(torch.cuda.is_available() and torch.cuda.device_count() > 0)
-    except Exception:  # pragma: no cover - defensive: broken driver installs
+    except Exception:  # pragma: no cover - defensive: broken driver installs  # noqa: BLE001 - driver probes raise assorted vendor errors
         return False
 
 
@@ -118,13 +118,13 @@ def describe_device(device: torch.device) -> DeviceInfo:
     return DeviceInfo(
         type="cpu",
         index=None,
-        name=_cpu_name(),
+        name=cpu_name(),
         total_memory_bytes=None,
         capability=None,
     )
 
 
-def _cpu_name() -> str:
+def cpu_name() -> str:
     """Best-effort CPU model string (``/proc/cpuinfo`` on Linux)."""
     try:
         with open("/proc/cpuinfo", encoding="utf-8") as fh:  # noqa: PTH123 - procfs
@@ -141,7 +141,7 @@ def bf16_supported(device: torch.device) -> bool:
     if device.type == "cuda":
         try:
             return bool(torch.cuda.is_bf16_supported())
-        except Exception:  # pragma: no cover
+        except Exception:  # pragma: no cover  # noqa: BLE001 - driver probes raise assorted vendor errors
             return False
     # torch.autocast('cpu') supports bf16 everywhere; it is only *fast* with
     # AVX512-BF16/AMX, but correctness does not depend on that. Any other device type

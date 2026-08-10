@@ -48,7 +48,7 @@ def _timed(name: str, fn: Any) -> ReadinessCheck:
     started = time.perf_counter()
     try:
         ok, detail = fn()
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - a probe must report, never raise
         ok, detail = False, f"{type(exc).__name__}: {exc}"
     return ReadinessCheck(
         name=name,

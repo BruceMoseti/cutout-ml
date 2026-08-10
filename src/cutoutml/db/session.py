@@ -93,7 +93,7 @@ def check_database(settings: Settings | None = None) -> tuple[bool, str]:
         engine = build_engine(settings) if settings else get_engine()
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - a readiness probe reports, never raises
         return (False, f"{type(exc).__name__}: {exc}")
     return (True, "ok")
 

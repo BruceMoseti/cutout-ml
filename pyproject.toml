@@ -96,6 +96,10 @@ select = [
   "UP",   # pyupgrade
   "SIM",  # flake8-simplify
   "RET",  # flake8-return
+  # Blind `except Exception` is sometimes exactly right (diagnostics, best-effort
+  # cleanup, a metrics call that must not break a request) and usually wrong. Enabling
+  # the rule forces each instance to be justified with a noqa comment saying which.
+  "BLE",  # flake8-blind-except
   "PTH",  # use pathlib
   "ARG",  # unused arguments
   "N",    # pep8-naming

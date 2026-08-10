@@ -235,6 +235,6 @@ class S3Storage(Storage):
         """Create the bucket if it does not exist (used by the dev MinIO setup)."""
         try:
             self.client.head_bucket(Bucket=self.bucket)
-        except Exception:
+        except Exception:  # noqa: BLE001 - best-effort cleanup
             self.client.create_bucket(Bucket=self.bucket)
             log.info("s3_bucket_created", bucket=self.bucket)

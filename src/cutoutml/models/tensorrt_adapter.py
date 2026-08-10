@@ -55,7 +55,7 @@ def tensorrt_available() -> bool:
     """True when ``tensorrt`` and a CUDA runtime binding are both importable."""
     try:
         import tensorrt  # noqa: F401
-    except Exception:
+    except Exception:  # noqa: BLE001 - optional dependency probe
         return False
     return _cuda_binding() is not None
 
@@ -66,13 +66,13 @@ def _cuda_binding() -> str | None:
         import cuda.bindings.driver  # noqa: F401
 
         return "cuda-python"
-    except Exception:
+    except Exception:  # noqa: BLE001 - optional dependency probe
         pass
     try:
         import pycuda.driver  # noqa: F401
 
         return "pycuda"
-    except Exception:
+    except Exception:  # noqa: BLE001 - optional dependency probe
         return None
 
 
@@ -82,7 +82,7 @@ def tensorrt_version() -> str | None:
         import tensorrt as trt
 
         return str(trt.__version__)
-    except Exception:
+    except Exception:  # noqa: BLE001 - optional dependency probe
         return None
 
 

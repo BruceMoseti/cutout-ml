@@ -422,7 +422,7 @@ def delete_asset(asset: OwnedAsset, session: SessionDep, storage: StorageDep) ->
     session.commit()
     try:
         storage.delete(asset.storage_key)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - the row is already marked deleted
         log.warning("asset_object_delete_failed", asset_id=str(asset.id), error=str(exc))
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -554,7 +554,7 @@ def _dispatch(job: InferenceJob, session: SessionDep, *, request_id: str | None)
         async_result = task.apply_async(
             kwargs={"job_id": str(job.id), "request_id": request_id}, queue=job.queue
         )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - a broker outage must not lose the request
         log.error("job_dispatch_failed", job_id=str(job.id), error=str(exc))
         job.progress_message = "queued locally; broker unreachable"
         session.flush()
@@ -612,7 +612,7 @@ def build_result_response(job: InferenceJob, storage: StorageDep, settings: Sett
         key = str(item.get("storage_key", ""))
         try:
             url = storage.presign_download(key, expires_in=settings.presign_expiry_seconds)
-        except Exception:
+        except Exception:  # noqa: BLE001 - fall back to the authenticated API route
             url = f"/v1/jobs/{job.id}/outputs/{item.get('kind')}"
         outputs.append(
             ResultOutput(

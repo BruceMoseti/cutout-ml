@@ -84,7 +84,7 @@ def compile_module(
         with torch.inference_mode():
             compiled(example)
         warm = time.perf_counter() - started
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - inductor raises many backend-specific types
         # Deliberately broad: Inductor surfaces missing compilers, unsupported ops and
         # guard failures as several unrelated exception types, and none of them should
         # take down a benchmark run or an API worker.

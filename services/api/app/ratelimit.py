@@ -148,7 +148,7 @@ class RateLimiter:
         if self._script is None:
             try:
                 self._script = self._redis.register_script(_TOKEN_BUCKET_LUA)
-            except Exception as exc:  # pragma: no cover
+            except Exception as exc:  # pragma: no cover  # noqa: BLE001 - any redis failure must fall back, not 500
                 log.warning("ratelimit_script_registration_failed", error=str(exc))
                 self._redis_failed = True
                 return None
@@ -176,7 +176,7 @@ class RateLimiter:
                 return RateLimitDecision(
                     allowed, remaining, retry_after, effective_limit, "redis"
                 )
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - any redis failure must fall back, not 500
                 # One failure flips to memory for the process lifetime rather than
                 # retrying Redis on every request while it is down.
                 log.warning("ratelimit_redis_unavailable", error=str(exc), fallback="in-memory")
@@ -201,7 +201,7 @@ def build_redis_client(url: str) -> Any | None:
     try:
         client = redis.Redis.from_url(url, socket_connect_timeout=2, socket_timeout=2)
         client.ping()
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - probing a server that may be absent
         log.warning("redis_unavailable", url=url, error=str(exc))
         return None
     return client
