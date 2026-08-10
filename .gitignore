@@ -1,0 +1,58 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Node
+node_modules/
+.next/
+out/
+.turbo/
+*.tsbuildinfo
+.pnpm-store/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Local data. Anchored to the repo root so that the `src/cutoutml/storage`
+# package is not swallowed by the runtime storage-root pattern.
+/data/
+/storage/
+/uploads/
+/tmp/
+*.db
+*.sqlite3
+
+# Model weights & large artifacts. The default CutoutNet checkpoint is an
+# exception: it is 4.6 MB, it was trained in this repository, and committing it
+# is what makes `GET /v1/models` and the image pipeline work on a fresh clone.
+*.pth
+*.pt
+*.onnx
+*.engine
+*.plan
+!models/cutoutnet/cutoutnet-small.pt
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Test artifacts
+playwright-report/
+test-results/
