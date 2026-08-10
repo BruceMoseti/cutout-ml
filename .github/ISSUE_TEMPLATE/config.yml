@@ -1,0 +1,12 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Setup and troubleshooting
+    url: https://github.com/BruceMoseti/cutout-ml/blob/main/CONTRIBUTING.md
+    about: >
+      Setup, the checks that must pass, and how to obtain model weights. Run `make doctor`
+      first — it reports the four things that cause most confusion here.
+  - name: Design rationale
+    url: https://github.com/BruceMoseti/cutout-ml/tree/main/docs/decisions
+    about: >
+      "Why is it done this way?" is usually answered by an ADR. Check there before opening
+      an issue to propose the alternative it rejected.

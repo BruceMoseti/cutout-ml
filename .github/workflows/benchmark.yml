@@ -1,0 +1,114 @@
+# Benchmarks, on demand only.
+#
+# Deliberately NOT part of ci.yml. Two reasons, and the second is the important one:
+#
+#  1. Cost. The full suite trains nothing but still loads a dozen models and runs
+#     hundreds of timed inferences; on a shared runner that is tens of minutes per PR.
+#
+#  2. Validity. GitHub's hosted runners are shared, burstable and of unspecified CPU
+#     model. Latency measured there varies by more than the differences the suite exists
+#     to detect, so a number from this workflow is reproducible-in-shape but not
+#     comparable with a number from another machine -- and committing such numbers to
+#     docs/benchmarks.md would quietly corrupt the table. That is why this workflow
+#     uploads its results as an artifact and does not commit them by default, and why
+#     every result file records its own CPU model and core count.
+#
+# The committed numbers in docs/benchmarks.md were produced by running
+# `make bench` on one known machine, whose provenance is in the result JSON.
+
+name: benchmark
+
+on:
+  workflow_dispatch:
+    inputs:
+      models:
+        description: "Space-separated model or case names (blank = the full suite)"
+        required: false
+        default: ""
+      repetitions:
+        description: "Timed repetitions per case"
+        required: false
+        default: "20"
+      accuracy_samples:
+        description: "Evaluation samples per case"
+        required: false
+        default: "64"
+      train_first:
+        description: "Train the checkpoints first (slow; otherwise trained cases skip)"
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    # Generous: a full suite with torch.compile cases spends minutes in Inductor codegen
+    # before it times anything.
+    timeout-minutes: 180
+    env:
+      PIP_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+
+      - run: pip install -e '.[api,onnx,dev]'
+
+      - name: Record what this runner actually is
+        # Printed into the log next to the results, because "which CPU produced this"
+        # is the first question anyone comparing two runs has to answer.
+        run: |
+          python -m cutoutml.cli doctor
+          echo "--- /proc/cpuinfo model name ---"
+          grep -m1 'model name' /proc/cpuinfo || true
+          nproc
+
+      - name: Train checkpoints
+        if: ${{ inputs.train_first }}
+        # Without this the trained-model cases report status=skipped with a reason, which
+        # is the honest outcome -- weights are not committed to the repository.
+        run: make weights
+
+      - name: Run the suite
+        run: |
+          python benchmarks/run.py \
+            --repetitions '${{ inputs.repetitions }}' \
+            --accuracy-samples '${{ inputs.accuracy_samples }}' \
+            --log-format json \
+            --no-render \
+            ${{ inputs.models && format('--models {0}', inputs.models) || '' }}
+
+      - name: Render the markdown table
+        run: python -m cutoutml.benchmarks.render_report
+
+      - name: Summarise into the run page
+        # The table lands in the workflow summary so a reviewer does not have to download
+        # an artifact to see the outcome.
+        run: |
+          {
+            echo '## Benchmark results'
+            echo
+            echo "Runner: $(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2- | xargs), $(nproc) vCPU"
+            echo
+            echo '> Shared CI hardware. Not comparable with the numbers committed in'
+            echo '> docs/benchmarks.md, which were measured on a single known machine.'
+            echo
+            sed -n '/^| /,/^$/p' docs/benchmarks.md | head -60
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: benchmark-results
+          path: |
+            benchmarks/results/*.json
+            docs/benchmarks.md
+          retention-days: 30

@@ -1,0 +1,222 @@
+# Pull-request and push CI.
+#
+# Split into jobs that can fail independently, so a formatting slip does not hide a test
+# failure and a frontend break does not look like a backend one. Nothing here trains a
+# model or runs a benchmark: those take tens of minutes on a shared runner and would make
+# every PR slow while producing numbers too noisy to compare. Benchmarks live in
+# benchmark.yml and are triggered by hand.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A new push to the same PR makes the previous run's result irrelevant.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.12"
+  # The CPU wheel is ~10x smaller than the default CUDA one and CI has no GPU.
+  PIP_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu
+
+permissions:
+  contents: read
+
+jobs:
+  # ----------------------------------------------------------------- python lint
+  lint:
+    name: ruff
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      # Ruff only: installing torch to lint would add several minutes for no benefit.
+      - run: pip install 'ruff>=0.4'
+      - run: ruff check --output-format=github .
+      - run: ruff format --check .
+
+  # ------------------------------------------------------------------- type check
+  typecheck:
+    name: mypy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      # The full extras are needed: mypy resolves fastapi, sqlalchemy and celery types,
+      # and without them every import becomes Any and the check proves nothing.
+      - run: pip install -e '.[api,onnx,dev]'
+      - run: mypy
+
+  # ------------------------------------------------------------------ unit tests
+  test:
+    name: pytest (unit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      # ffmpeg is installed even for the unit job: the encoder-argument and
+      # alpha-capability tests shell out to it, and skipping them here would mean the
+      # video path is only ever checked in the integration job.
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      - run: pip install -e '.[api,onnx,dev]'
+
+      - name: Eval-set fingerprint matches the committed manifest
+        # Regenerates the eval samples and compares a hash of their pixels. A failure here
+        # means the generator no longer produces the dataset every committed accuracy
+        # number was measured on, which would otherwise drift silently.
+        run: python scripts/eval_data.py --verify
+
+      - name: Benchmark tables match the committed results JSON
+        # The README and docs/benchmarks.md tables are generated. Re-rendering and
+        # diffing is what makes "no number was typed by hand" enforceable.
+        run: |
+          python -m cutoutml.benchmarks.render_report
+          git diff --exit-code -- docs/benchmarks.md README.md
+
+      - name: Run unit tests
+        run: pytest -q -m 'not integration' --cov --cov-report=xml --cov-report=term-missing
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-unit
+          path: coverage.xml
+          retention-days: 7
+
+  # ----------------------------------------------------------- integration tests
+  integration:
+    name: pytest (integration)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        # Matches the compose stack. Plain Postgres is sufficient: the schema uses only
+        # core types plus jsonb and uuid, and no extension is created by any migration.
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: dev
+          POSTGRES_PASSWORD: dev
+          POSTGRES_DB: cutoutml
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U dev -d cutoutml"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 12
+    env:
+      CUTOUTML_TEST_DATABASE_URL: postgresql+psycopg://dev:dev@127.0.0.1:5432/cutoutml
+      CUTOUTML_TEST_REDIS_URL: redis://127.0.0.1:6379/15
+      CUTOUTML_JWT_SECRET: ci-secret-not-a-real-one
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      - run: pip install -e '.[api,onnx,dev]'
+
+      - name: Migrations apply and roll back cleanly
+        env:
+          CUTOUTML_DATABASE_URL: postgresql+psycopg://dev:dev@127.0.0.1:5432/cutoutml
+        run: |
+          alembic upgrade head
+          alembic downgrade base
+          alembic upgrade head
+
+      - name: ORM metadata matches the migration
+        # An autogenerate diff against the freshly migrated database. Without this a
+        # model change silently drifts from the schema until it fails in production.
+        env:
+          CUTOUTML_DATABASE_URL: postgresql+psycopg://dev:dev@127.0.0.1:5432/cutoutml
+        run: python scripts/check_migration_drift.py
+
+      - name: Run integration tests
+        # -p no:randomly keeps ordering stable; these tests create and drop databases.
+        run: pytest -q -m integration -rs | tee integration.log
+
+      - name: Fail if every integration test skipped
+        # The suite is written to skip when Postgres or Redis is absent, which is right
+        # for a laptop and wrong for CI: without this check a broken service container
+        # turns the whole job green.
+        run: |
+          if grep -qE '^[0-9]+ skipped' integration.log && ! grep -qE '[0-9]+ passed' integration.log; then
+            echo "::error::all integration tests skipped -- the service containers were not reachable"
+            exit 1
+          fi
+
+  # ------------------------------------------------------------------- frontend
+  web:
+    name: frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  # --------------------------------------------------------------------- docker
+  docker:
+    name: docker build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      # Build only -- no push, no run. This is the check the authoring environment could
+      # not perform (it had no Docker daemon), so it matters more here than usual.
+      - name: Build API image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/api.Dockerfile
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Build worker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/worker.Dockerfile
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Build web image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/web.Dockerfile
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Validate compose file
+        run: docker compose config -q
+        env:
+          CUTOUTML_JWT_SECRET: ci-secret-not-a-real-one

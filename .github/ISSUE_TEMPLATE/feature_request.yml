@@ -1,0 +1,67 @@
+name: Feature request
+description: Propose a capability that does not exist yet
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: >
+        What are you unable to do today? Describe the situation, not the solution — the
+        proposal is the next field, and separating the two usually reveals a cheaper
+        option.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behaviour
+      description: >
+        What should happen instead. If it touches the HTTP API, sketch the request and the
+        response. If it adds a model, say which architecture and where its weights and
+        licence come from.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you considered
+      description: >
+        Including "do nothing" and any workaround that exists today. This field is not
+        boilerplate: a proposal with no rejected alternatives usually has not been thought
+        through, and if this lands it becomes the Alternatives section of an ADR.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      multiple: true
+      options:
+        - API (services/api)
+        - Worker (services/inference)
+        - Image pipeline
+        - Video pipeline / ffmpeg
+        - Models / registry
+        - Training
+        - Benchmarks
+        - Frontend (apps/web)
+        - Docker / compose
+        - Documentation
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope checks
+      options:
+        - label: >
+            This does not require a number that cannot be measured. Anything presented as a
+            performance claim has to be measured on described hardware; see CONTRIBUTING.md.
+        - label: >
+            If this is expensive to reverse, I understand it needs an ADR in
+            docs/decisions/ alongside the implementation.

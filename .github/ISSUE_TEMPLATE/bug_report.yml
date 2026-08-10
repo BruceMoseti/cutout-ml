@@ -1,0 +1,85 @@
+name: Bug report
+description: Something behaves differently from how it is documented
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing: run `make doctor` and paste its output below. Most reports here turn
+        out to be a missing GPU, a missing ffmpeg, a missing onnxruntime or an absent
+        checkpoint, and `doctor` reports all four in one line each.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you observed, and what you expected instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: >
+        The exact commands or requests, in order. A curl invocation or a `cutoutml`
+        command line is ideal. If it involves an upload, describe the file — format,
+        dimensions, duration — rather than attaching something large.
+      placeholder: |
+        1. cutoutml segment photo.jpg -o out/
+        2. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of `make doctor`
+      render: text
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Commit
+      description: "`git rev-parse --short HEAD`, and whether the working tree was dirty."
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      multiple: true
+      options:
+        - API (services/api)
+        - Worker (services/inference)
+        - Image pipeline
+        - Video pipeline / ffmpeg
+        - Models / registry
+        - Training
+        - Benchmarks
+        - Frontend (apps/web)
+        - Docker / compose
+        - Documentation
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: >
+        Include the `request_id` if this came from an HTTP error — it appears in the error
+        body and in every server log line for that request. Paste the log lines around the
+        failure rather than the whole file.
+      render: text
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Anything else about the environment
+      description: >
+        Container or bare metal, CPU count, Postgres and Redis versions if the API or
+        worker is involved, and whether a proxy or firewall is in the path.
