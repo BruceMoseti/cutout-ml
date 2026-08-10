@@ -1,0 +1,344 @@
+# CutoutML
+
+Image and video background removal served as a job queue: a FastAPI control plane, Celery
+workers that hold models in memory, a pluggable model registry spanning PyTorch, ONNX
+Runtime and TensorRT, and a benchmark harness that measures every claim in this README.
+
+## Why I built it
+
+I wanted to know what it actually takes to put a segmentation model behind an HTTP API and
+have it survive contact with reality. The model is the easy part. The parts that are not:
+
+- **Alpha is where quality lives.** A binary mask upscaled from 256×256 looks like a
+  ransom note. Getting a soft, correctly-aligned edge means un-letterboxing the mask to the
+  source resolution *before* refinement, running a guided filter against the source image,
+  and measuring boundary quality separately from region quality — because IoU cannot see
+  the difference and a human immediately can.
+- **Video is a container problem, not a model problem.** MP4 cannot carry alpha, and if you
+  ask ffmpeg for RGBA in an MP4 it will silently hand back an opaque file. Whether a given
+  libvpx build writes a real alpha plane varies, and reading it back without an
+  alpha-aware decoder returns 255 everywhere — so a naive round-trip test can report
+  success on an opaque file. This is probed at runtime rather than assumed.
+- **A benchmark number without provenance is a lie by omission.** So the harness records
+  the commit, whether the tree was dirty, the CPU model, the OS, every library version, the
+  dataset fingerprint, the batch size and the precision, and the tables in this README are
+  *generated* from that JSON. There is no way to type a number in here by hand.
+- **At-least-once delivery is not a corner case.** A Redis broker with late acks will run a
+  task twice. The interesting engineering is making the second run harmless and making the
+  retry history queryable in SQL rather than greppable in logs.
+
+Every design decision that was expensive to make is written down in
+[`docs/decisions/`](docs/decisions/) with the alternatives that were rejected.
+
+## Benchmarks
+
+All numbers below were measured by `benchmarks/run.py` on the machine described in the
+table. **There is no GPU on that machine, so every figure is CPU-only** and is labelled as
+such. TensorRT and CUDA rows are absent rather than estimated — see
+[docs/benchmarks.md](docs/benchmarks.md) for what was and was not measured.
+
+<!-- BENCHMARKS:BEGIN -->
+Generated from the latest run in `benchmarks/results/`. Regenerate with `make bench`, or
+re-render an existing run with `make render-bench`.
+<!-- BENCHMARKS:END -->
+
+Methodology, the full metric set, the per-stage timing breakdown and the reasons the
+synthetic eval set is not comparable to published DUTS/DIS5K numbers are all in
+[docs/benchmarks.md](docs/benchmarks.md).
+
+## Features
+
+- **Images**: transparent PNG/WebP, mask-only, composite over a colour, over an image, or
+  over a blurred copy of the source. Outputs are requested per job, because encoding a
+  4000 px PNG nobody asked for is not free.
+- **Video**: composited MP4, genuinely transparent WebM/VP9, ProRes 4444 or QuickTime RLE,
+  RGBA PNG sequences, or a mask track. Frames stream through an ffmpeg pipe in bounded
+  batches, so peak memory depends on batch size rather than clip length.
+- **Temporal smoothing** (EMA or median) with `estimate_flicker()` to report the
+  frame-to-frame alpha difference with and without it, so the responsiveness trade-off is a
+  measurement rather than a default nobody questions.
+- **Thirteen registered models**: three original CutoutNet widths trained in-repo, a
+  U²-Net reimplementation that loads the official checkpoints, a BiRefNet-inspired
+  architecture, an ONNX Runtime path, a TensorRT path, three classical baselines and two
+  trivial calibration references.
+- **Async API**: JWT auth, two-phase and presigned uploads, idempotency keys, job/run
+  history, cancellation, Prometheus metrics, split liveness and readiness.
+- **Training**: an architecture-agnostic trainer over a deterministic procedural dataset,
+  with every run's hyperparameters and per-epoch metrics committed as JSON.
+- **Web console**: Next.js App Router — an upload studio with a before/after slider, a
+  video console, the model registry, and the benchmark dashboard.
+- **CLI**: `cutoutml models | segment | video | export-onnx | train | benchmark | doctor`.
+
+## Architecture
+
+```
+   browser ──▶ apps/web (Next.js 15)          proxies /api/* to the API
+                    │
+                    ▼
+        services/api (FastAPI, stateless, no model imports, no GPU)
+          request-id ▸ access log ▸ body-size limit ▸ CORS
+          routers: health auth assets jobs catalog
+          rate limiter as a router dependency, not middleware
+             │              │                  │
+      ┌──────▼─────┐  ┌─────▼──────┐   ┌───────▼────────┐
+      │ PostgreSQL │  │   Redis    │   │ Object storage │
+      │ users      │  │ broker     │   │ local FS or    │
+      │ assets     │  │ results    │   │ S3-compatible  │
+      │ jobs/runs  │  │ rate limit │   │ (MinIO in the  │
+      │ benchmarks │  └─────┬──────┘   │  compose file) │
+      └──────▲─────┘        │          └───────▲────────┘
+             │      cpu │ image-gpu │ video-gpu│
+             │              │                  │
+             │   ┌──────────▼──────────────────┴──┐
+             └───┤ services/inference (Celery)    │
+                 │ tasks.py   retries, acks       │
+                 │ runner.py  pure execution      │
+                 │ bounded LRU model cache        │
+                 └──────────────┬─────────────────┘
+                                ▼
+                 src/cutoutml — models/ pipelines/ core/
+                 storage/ datasets/ training/ benchmarks/
+```
+
+The dependency direction is strict: `services/*` imports `cutoutml`, never the reverse, and
+the API imports neither torch nor any model adapter. That is what keeps the API image small
+and its boot time independent of the model catalogue. Full detail in
+[docs/architecture.md](docs/architecture.md).
+
+## Technical highlights
+
+**The model registry is declarative and lazily imported.** A model is a `ModelSpec` — name,
+dotted adapter path, input size, licence, weights path, runtime, options. Listing the
+catalogue imports nothing, so `GET /v1/models` cannot be broken by a missing TensorRT and
+costs no model load. Availability is computed per call, so a checkpoint appearing in
+`models/` shows up without a restart, and a client learns a model is unusable *before*
+submitting a job to it. ([ADR-001](docs/decisions/ADR-001-model-registry.md))
+
+**Warmup is discarded and reported separately.** The first forward pass pays for lazy
+oneDNN algorithm selection, memory-pool growth and, on CUDA, context creation and
+autotuning — routinely 2–50× steady state. The harness runs warmup iterations, throws them
+away, and reports the first iteration and the model load as `first_inference_ms` and
+`cold_start_seconds` instead of letting them corrupt the mean.
+
+**CUDA is synchronised around every timed region.** Kernel launches are asynchronous;
+timing `model(x)` without `torch.cuda.synchronize()` measures the launch and produces
+impossibly fast numbers. The code path is identical on CPU, where it is a no-op.
+
+**Percentiles, not a mean.** p50/p95/p99/mean/stddev/min/max per case. The stddev is the
+number to read first: if it is large relative to p50, the machine was not quiet and nothing
+else in the row should be trusted.
+
+**Random weights can never produce an accuracy number.** Architectures whose pretrained
+checkpoints are unreachable here are benchmarked for latency with random initialisation and
+marked `accuracy_valid=false`, rendering as `n/a` with a footnote. A latency-only row cannot
+be misread as an accuracy claim, and `random_init` is refused for any model that does not
+explicitly opt in — so it is unreachable from an API request.
+
+**Calibration rows are mandatory.** `trivial-ones` predicts foreground everywhere and
+`trivial-center` draws a fixed ellipse. IoU is only interpretable against what predicting
+nothing achieves; any model that does not clearly beat those has learned nothing.
+
+**Alpha refinement is a measured stack, not a magic function.** Guided filtering against
+the source image, morphological cleanup, and edge feathering — each stage independently
+switchable and unit-tested, applied at full resolution because refining the small mask and
+upsampling reintroduces exactly the stair-stepping the filter exists to remove.
+
+**Three queues and separate workers.** Video holds a worker for minutes; images expect tens
+of milliseconds. Behind one queue that is head-of-line blocking. GPU memory does not divide
+by concurrency the way CPU cores do, so image and video workers need different `-c` values,
+which requires different processes. ([ADR-002](docs/decisions/ADR-002-queues.md))
+
+**OOM retries halve the batch size and record it.** Re-running an identical OOM is a
+guaranteed second OOM. The reduction is persisted on the job row, so it survives a worker
+restart and appears in `GET /v1/jobs/{id}`, and the attempt is a row in `inference_runs` —
+which turns "at what batch size does 4K video actually fit" into a SQL query.
+
+**Uploads are validated in cost order and nothing the client says is trusted.** Content
+type is sniffed from magic bytes and cross-checked against both the declared type and the
+extension; size is checked against the real byte count, not `Content-Length`; and the pixel
+count is checked from the image header *before* decoding, because a 20 KB PNG can declare
+50,000 × 50,000 pixels.
+
+**Storage keys are server-generated and random.** The client's filename never touches a
+path, so traversal is structurally impossible rather than mitigated. Local writes are
+atomic via `os.replace`, because an API polling for a result a worker is writing must never
+read a partial file. ([ADR-006](docs/decisions/ADR-006-storage-layout.md))
+
+**The ONNX export is verified numerically or it is not an export.** Parity is checked to
+1e-3 on post-sigmoid probabilities — under one 8-bit alpha level, so the difference cannot
+survive quantisation to a PNG. And the execution provider onnxruntime *actually chose* is
+recorded, not the one requested, because a row labelled GPU that ran on CPU is worse than
+no row. ([ADR-005](docs/decisions/ADR-005-onnx-runtime.md))
+
+**The eval set is a fingerprint, not a folder.** The dataset is procedurally generated from
+a seed; `datasets/synthetic-eval.json` commits the generator version, every parameter and a
+SHA-256 over the first samples. CI regenerates and compares, so a change in OpenCV's
+resampling defaults fails the build instead of silently shifting every accuracy number.
+([ADR-004](docs/decisions/ADR-004-synthetic-dataset.md))
+
+## Tech stack
+
+| Layer | Choice |
+|---|---|
+| Models | PyTorch 2.x, ONNX Runtime, TensorRT adapter (unmeasured here) |
+| Vision | OpenCV (headless), Pillow, NumPy, SciPy |
+| API | FastAPI, uvicorn, Pydantic v2 / pydantic-settings |
+| Queue | Celery 5 on Redis 7 |
+| Database | PostgreSQL 16, SQLAlchemy 2.0 ORM, Alembic |
+| Storage | Local filesystem or any S3-compatible endpoint (boto3); MinIO in compose |
+| Auth | bcrypt (cost 12, SHA-256 pre-hash), PyJWT HS256 |
+| Video | ffmpeg 6 via streaming subprocess pipes |
+| Observability | structlog (JSON), prometheus-client |
+| Frontend | Next.js 15 App Router, React 19, TypeScript, Tailwind, Vitest |
+| Tooling | ruff, mypy, pytest, GitHub Actions, Docker Compose |
+
+## Running locally
+
+### Docker Compose
+
+```bash
+cp .env.example .env
+# CUTOUTML_JWT_SECRET is required; compose refuses to start without it.
+python -c 'import secrets; print("CUTOUTML_JWT_SECRET=" + secrets.token_urlsafe(48))' >> .env
+
+docker compose up -d --build          # postgres, redis, minio, api, 3 workers, web
+docker compose run --rm migrate       # one-shot; not an API entrypoint step
+open http://localhost:3000            # console      http://localhost:8000/docs — API
+```
+
+Migrations are a separate one-shot service on purpose: running them from the API means N
+replicas racing to migrate the same database on every deploy.
+
+The compose file's **schema is validated** (`docker compose config`, which needs no
+daemon) and its images are built by the `docker` job in CI. It has never been brought
+`up` — the machine this was developed on had no Docker daemon, and saying otherwise would
+be exactly the kind of claim this project avoids making.
+
+### Manual
+
+Needs Python 3.12+, Node 20+, ffmpeg, PostgreSQL 15+, Redis 7+.
+
+```bash
+make venv install install-web
+cp .env.example .env
+make migrate
+make doctor          # what actually works here: GPU, ffmpeg, onnxruntime, database
+```
+
+Four processes, four terminals:
+
+```bash
+make api             # uvicorn on :8000
+make worker          # celery, cpu queue
+make web             # next dev on :3000
+# make worker-gpu    # image-gpu + video-gpu, needs CUDA
+```
+
+The learned models need checkpoints, which are **not committed**
+([ADR-008](docs/decisions/ADR-008-no-committed-weights.md)):
+
+```bash
+make weights         # trains tiny/small/base/u2net-lite, then re-exports ONNX
+```
+
+Until that finishes, `GET /v1/models` reports the learned models as
+`weights_available: false` and the classical and trivial baselines serve requests normally
+— so the API, both pipelines, the CLI, the console and the whole test suite work
+immediately after a clone.
+
+### Without any services
+
+```bash
+cutoutml doctor
+cutoutml models
+cutoutml segment photo.jpg -o out/ --outputs transparent_png mask_png
+cutoutml video clip.mp4 -o out.webm --mode transparent --container webm
+cutoutml benchmark --quick
+```
+
+## API
+
+Full reference in [docs/api.md](docs/api.md); the generated schema is at `/docs`,
+`/redoc` and `/openapi.json`.
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/health/live`, `/health/ready` | Liveness (touches nothing) and readiness (503 when Postgres or Redis is down) |
+| `POST` | `/v1/auth/register`, `/v1/auth/login` | Accounts and tokens |
+| `GET` | `/v1/auth/me` | The authenticated principal |
+| `POST` | `/v1/assets` | Upload in one multipart request |
+| `POST` | `/v1/assets/upload-url` → `PUT .../content` → `POST .../complete` | Presigned upload, direct to storage |
+| `GET`/`DELETE` | `/v1/assets`, `/v1/assets/{id}`, `/v1/assets/{id}/content` | List, inspect, download, delete |
+| `POST` | `/v1/assets/{id}/process` | Queue a job. 202 with a job id, or 200 with the existing job when idempotent. |
+| `GET` | `/v1/jobs`, `/v1/jobs/{id}` | Status, progress, and every attempt with its device and batch size |
+| `GET` | `/v1/jobs/{id}/result`, `/v1/jobs/{id}/outputs/{kind}` | Manifest and per-output download |
+| `POST` | `/v1/jobs/{id}/cancel` | Cooperative cancellation |
+| `GET` | `/v1/models`, `/v1/models/catalogue` | Registry with per-model availability, licence and source |
+| `GET` | `/v1/benchmarks`, `/v1/benchmarks/{run_id}` | Recorded runs with full provenance |
+| `GET` | `/metrics` | Prometheus. Unauthenticated; must be network-restricted. |
+
+Errors are always `{"error": {"code", "message", "request_id", "details?}}`. `code` is
+stable and safe to branch on. A resource owned by another user returns `404`, not `403`,
+because a `403` confirms the id exists.
+
+## Testing
+
+```bash
+make check                 # ruff lint + format check + mypy + unit tests
+make test-integration      # needs Postgres, Redis, ffmpeg
+make eval-data             # eval-set fingerprint still matches the manifest
+cd apps/web && npm run lint && npm run typecheck && npm test && npm run build
+```
+
+Unit tests need no network, database or broker and run in seconds. Integration tests are
+marked and skipped without their services — and CI fails if *every* integration test
+skipped, because a broken service container otherwise turns the job green.
+
+Numerical tests assert against hand-computed values rather than against the
+implementation's own output, so a test cannot pass a refactor that changed the answer. CI
+also re-renders the benchmark tables and diffs them, which is what makes "every number was
+measured" enforceable.
+
+## Design decisions
+
+| ADR | Decision |
+|---|---|
+| [001](docs/decisions/ADR-001-model-registry.md) | Models are declared in a registry and loaded by name |
+| [002](docs/decisions/ADR-002-queues.md) | Redis broker, three queues, separate CPU/GPU workers |
+| [003](docs/decisions/ADR-003-video-output.md) | Four video output modes; alpha capability is probed, not assumed |
+| [004](docs/decisions/ADR-004-synthetic-dataset.md) | Evaluate on a procedurally generated, fingerprinted dataset |
+| [005](docs/decisions/ADR-005-onnx-runtime.md) | ONNX Runtime as a peer serving runtime, with verified export parity |
+| [006](docs/decisions/ADR-006-storage-layout.md) | Server-generated random keys behind a narrow storage interface |
+| [007](docs/decisions/ADR-007-idempotency.md) | Idempotency keys and a job/run split instead of exactly-once delivery |
+| [008](docs/decisions/ADR-008-no-committed-weights.md) | No model weights in git |
+
+Also: [architecture](docs/architecture.md) · [data model](docs/data-model.md) ·
+[API](docs/api.md) · [benchmarks](docs/benchmarks.md) · [security](docs/security.md) ·
+[models and licences](docs/models.md)
+
+## Roadmap
+
+Ordered by what I would do next, not by ambition:
+
+1. **Measure a GPU.** Every fp16, `torch.compile`-on-CUDA and TensorRT code path is
+   implemented and type-checked but unmeasured. The rows are absent, and they should be
+   real.
+2. **Evaluate on DUTS and DIS5K.** `RealSegmentationDataset` already handles both; what is
+   missing is a run on hardware that can reach them, which would make the accuracy column
+   comparable to published work.
+3. **Webhooks.** Job completion is discovered by polling today.
+4. **A reconciliation job.** The database is authoritative for storage, so an object
+   without a row is garbage and a row without an object is a broken asset. Nothing detects
+   either yet.
+5. **Trimap-based matting.** The current models predict alpha directly. A trimap stage
+   would materially improve hair and fur, which is where the synthetic eval set is
+   deliberately hardest.
+6. **API keys and refresh tokens.** Machine-to-machine use currently means storing a
+   password.
+
+## Licence
+
+MIT — see [LICENSE](LICENSE). Model architectures are attributed individually in
+[docs/models.md](docs/models.md); U²-Net is Apache-2.0 upstream, and some third-party
+BiRefNet checkpoints are non-commercial, so check before using any weights you did not
+train.
