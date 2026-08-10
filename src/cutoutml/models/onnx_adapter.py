@@ -70,9 +70,27 @@ def select_providers(requested: Sequence[str] | None = None, *, device: str = "a
 class OnnxAdapter(SegmentationModel):
     """Run an exported ``.onnx`` segmentation graph.
 
-    The model file is expected to have a single float32 input ``(N, 3, h, w)`` and
-    a single output of logits ``(N, 1, h, w)`` - which is exactly what
+    The graph is expected to have a single float32 input ``(N, 3, h, w)`` and a single
+    output shaped ``(N, 1, h, w)`` - which is what
     :meth:`cutoutml.models.base.TorchSegmentationModel.to_onnx` produces.
+
+    Two properties of a third-party graph cannot be recovered from the file and must be
+    declared by the registry entry, because guessing either one wrong is silent rather
+    than loud:
+
+    ``output_activation``
+        Whether the graph emits logits or already-sigmoided probabilities. Published
+        segmentation graphs commonly bake the sigmoid in; applying a second one squashes
+        a mask towards 0.5 - alpha stays plausible-looking, edges go soft, and IoU drops
+        by a few points with nothing raising an error. When this is ``"sigmoid"``,
+        :meth:`predict` returns probabilities rather than the logits the base contract
+        specifies, and :meth:`postprocess` compensates. That deviation is confined to
+        this pair of methods.
+
+    ``intensity_scaling``
+        Preprocessing is not part of an ONNX artefact. A graph exported from U^2-Net
+        needs that architecture's per-image max division; a graph exported from this
+        repository does not.
     """
 
     def __init__(
@@ -82,16 +100,30 @@ class OnnxAdapter(SegmentationModel):
         providers: Sequence[str] | None = None,
         intra_op_threads: int = 0,
         normalization: tuple[tuple[float, float, float], tuple[float, float, float]] | None = None,
+        output_activation: str = "logits",
+        intensity_scaling: str = "none",
         **kwargs: Any,
     ) -> None:
         kwargs.setdefault("name", "onnx")
         super().__init__(**kwargs)
+        if output_activation not in ("logits", "sigmoid"):
+            raise ValueError(
+                f"output_activation must be 'logits' or 'sigmoid', got {output_activation!r}"
+            )
+        if intensity_scaling not in ("none", "max"):
+            raise ValueError(
+                f"intensity_scaling must be 'none' or 'max', got {intensity_scaling!r}"
+            )
         self.onnx_path = Path(onnx_path)
         self.requested_providers = list(providers) if providers else None
         self.intra_op_threads = intra_op_threads
         self._normalization = normalization
+        self.output_activation = output_activation
+        self.intensity_scaling = intensity_scaling
         self.session: Any = None
         self.active_providers: list[str] = []
+        #: Batch size the graph is fixed to, or ``None`` when the axis is dynamic.
+        self.static_batch: int | None = None
         self._input_name = "input"
         self._output_name = "logits"
 
@@ -106,6 +138,12 @@ class OnnxAdapter(SegmentationModel):
         if self._normalization is not None:
             return self._normalization
         return super().normalization
+
+    def intensity_divisor(self, image: np.ndarray) -> float | None:
+        if self.intensity_scaling != "max":
+            return None
+        peak = float(np.asarray(image).max())
+        return peak / 255.0 if peak > 0 else None
 
     def _load(self) -> None:
         try:
@@ -144,6 +182,9 @@ class OnnxAdapter(SegmentationModel):
         shape = inputs[0].shape
         if len(shape) == 4 and isinstance(shape[2], int) and isinstance(shape[3], int):
             self.input_size = (int(shape[3]), int(shape[2]))
+        # A symbolic batch axis arrives as a string; an int means the graph was exported
+        # without a dynamic batch and will reject any other size.
+        self.static_batch = int(shape[0]) if shape and isinstance(shape[0], int) else None
 
         log.info(
             "onnx_session_created",
@@ -151,6 +192,7 @@ class OnnxAdapter(SegmentationModel):
             requested=providers,
             active=self.active_providers,
             input_size=self.input_size,
+            static_batch=self.static_batch,
         )
         if providers[0] != self.active_providers[0]:
             log.warning(
@@ -162,19 +204,34 @@ class OnnxAdapter(SegmentationModel):
     def unload(self) -> None:
         self.session = None
         self.active_providers = []
+        self.static_batch = None
         super().unload()
 
     def predict(self, tensor: torch.Tensor) -> torch.Tensor:
+        """Run the graph. Returns logits, or probabilities for a sigmoid-baked graph."""
         self._ensure_loaded()
         assert self.session is not None
+        batch = int(tensor.shape[0])
+        if self.static_batch is not None and batch != self.static_batch:
+            raise ValueError(
+                f"{self.onnx_path.name} was exported with a fixed batch size of "
+                f"{self.static_batch} and cannot run a batch of {batch}. Re-export with "
+                "a dynamic batch axis (`to_onnx(..., dynamic_batch=True)`), or submit "
+                f"work in groups of {self.static_batch}. Padding the batch and "
+                "discarding the surplus would make a throughput number that looks "
+                "better than the artefact actually is."
+            )
         arr = tensor.detach().cpu().numpy().astype(np.float32, copy=False)
         (out,) = self.session.run([self._output_name], {self._input_name: arr})
-        logits = np.asarray(out, dtype=np.float32)
-        if logits.ndim == 3:
-            logits = logits[:, None]
-        return torch.from_numpy(logits)
+        raw = np.asarray(out, dtype=np.float32)
+        if raw.ndim == 3:
+            raw = raw[:, None]
+        return torch.from_numpy(raw)
 
     def postprocess(self, logits: torch.Tensor, infos: Sequence[LetterboxInfo]) -> list[np.ndarray]:
+        """Skip the sigmoid when the graph already applied one."""
+        if self.output_activation == "sigmoid":
+            return self.alpha_from_probabilities(logits, infos)
         return super().postprocess(logits, infos)
 
     def metadata(self) -> ModelMetadata:
@@ -192,7 +249,10 @@ class OnnxAdapter(SegmentationModel):
             source=spec.source if spec else str(self.onnx_path),
             notes=(
                 f"Execution providers active: {', '.join(self.active_providers) or 'none'}. "
-                "param_count is estimated from the fp32 graph size."
+                "param_count is estimated from the fp32 graph size. "
+                f"Graph output: {self.output_activation}; intensity scaling: "
+                f"{self.intensity_scaling}; batch axis: "
+                f"{'fixed at ' + str(self.static_batch) if self.static_batch else 'dynamic'}."
             ),
             **{
                 **self._base_metadata_kwargs(),
