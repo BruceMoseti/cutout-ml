@@ -168,12 +168,22 @@ def test_the_divisor_is_taken_before_letterboxing_so_padding_cannot_change_it():
 
 
 def _folded_graph(path: Path, *, batch: int | str, sigmoid: bool, size: int = 8) -> Path:
-    """Export a one-convolution graph, optionally with a baked-in sigmoid."""
+    """Export a one-convolution graph, optionally with a baked-in sigmoid.
+
+    The weights are set explicitly rather than left to the default initialiser. A random
+    convolution can land its output near zero, where ``sigmoid(x)`` is ~0.5 and the
+    double-sigmoid distortion the test below looks for becomes unmeasurable - so the test
+    would fail for some seeds and pass for others. The bias dominates, which puts the
+    logit firmly away from zero for any input.
+    """
 
     class Tiny(nn.Module):
         def __init__(self) -> None:
             super().__init__()
             self.conv = nn.Conv2d(3, 1, 3, padding=1)
+            nn.init.constant_(self.conv.weight, 0.01)
+            assert self.conv.bias is not None
+            nn.init.constant_(self.conv.bias, 2.0)
 
         def forward(self, x: torch.Tensor) -> torch.Tensor:
             out = self.conv(x)

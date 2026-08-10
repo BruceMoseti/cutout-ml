@@ -138,27 +138,32 @@ class U2NetAdapter(TorchSegmentationModel):
     def weights_hint(self) -> str:
         """What to actually do about the missing checkpoint.
 
-        Training is listed first because it is the route this repository takes and the
-        only one guaranteed to work offline. The published weights are mentioned second
-        for anyone who wants the authors' accuracy rather than a from-scratch run, but
-        they come with a caveat worth stating in the error itself: they are Apache-2.0
-        and their accuracy is not comparable with the in-repo runs, which see a
-        different (synthetic) dataset.
+        The already-solved route is named first. This architecture is registered twice:
+        once expecting a checkpoint trained here, and once (``u2netp`` / ``u2net``)
+        pointing at the authors' published weights, which ``make weights-pretrained``
+        fetches and converts. Anyone hitting this error most likely wants that pair and
+        should not be sent to train for an hour to find out.
+
+        The caveat belongs in the error rather than only in the docs: the published
+        weights are Apache-2.0 and their accuracy is *not* comparable with an in-repo run,
+        because the two see different datasets.
         """
+        pretrained = "u2netp" if self.variant == "lite" else "u2net"
         trainable = self.variant == "lite"
         train_hint = (
-            f"Train it here: `scripts/train_suite.sh u2net-{self.variant}` "
-            "(~1 hour on 8 CPU cores). "
+            f"train this one with `scripts/train_suite.sh u2net-{self.variant}` "
+            "(~1 hour on 8 CPU cores)"
             if trainable
-            else f"Training u2net-{self.variant} (44M parameters) needs a GPU. "
+            else f"train it yourself (u2net-{self.variant} is 44M parameters and needs a GPU)"
         )
         return (
-            f"{train_hint}Alternatively the authors publish pretrained weights "
-            "(Apache-2.0, hosted on Google Drive / HuggingFace mirrors): run "
-            f"`python -m cutoutml.models.download_weights --model {self.name}` where "
-            f"those hosts are reachable, or drop the .pth into "
-            f"{self.default_weights_hint()} yourself. For latency-only benchmarking "
-            "pass random_init=True."
+            f"The same architecture with the authors' pretrained weights is already "
+            f"registered as `{pretrained}` (Apache-2.0): run `make weights-pretrained` to "
+            f"fetch and convert them, then benchmark `{pretrained}` instead. Note that its "
+            "accuracy is not comparable with an in-repo run - different training data. "
+            f"Otherwise, {train_hint}, or drop a checkpoint into "
+            f"{self.default_weights_hint()} yourself. For latency-only benchmarking pass "
+            "random_init=True."
         )
 
     @property
