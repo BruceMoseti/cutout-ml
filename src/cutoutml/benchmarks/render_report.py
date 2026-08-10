@@ -162,8 +162,8 @@ def contention_block(report: dict[str, Any]) -> str:
 
     rows = [
         f"**{len(contended)} of {len(cases)} timed cases were measured under contention.** "
-        f"External demand peaked at {peak:.1f} of {cores} cores - that is, another workload "
-        "was using most of the machine while these timings were taken.",
+        f"External demand peaked at {peak:.1f} of {cores} cores ({peak / cores:.0%} of the "
+        "machine) while these timings were taken.",
         "",
         "The latency, throughput and peak-memory columns for those rows are therefore upper "
         "bounds on this hardware's cost, not measurements of it. They are published with the "
