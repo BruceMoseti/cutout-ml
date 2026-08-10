@@ -117,9 +117,7 @@ class ImagePipeline:
 
     # -------------------------------------------------------------- entry points
 
-    def process_bytes(
-        self, data: bytes, request: ImageRequest | None = None
-    ) -> ImageResult:
+    def process_bytes(self, data: bytes, request: ImageRequest | None = None) -> ImageResult:
         """Decode encoded image bytes and process them."""
         req = request or ImageRequest()
         started = time.perf_counter()
@@ -206,9 +204,7 @@ class ImagePipeline:
             if kind == "transparent_png":
                 outputs[kind] = encode_image(image, "png", alpha=alpha)
             elif kind == "transparent_webp":
-                outputs[kind] = encode_image(
-                    image, "webp", alpha=alpha, quality=req.webp_quality
-                )
+                outputs[kind] = encode_image(image, "webp", alpha=alpha, quality=req.webp_quality)
             elif kind == "mask_png":
                 outputs[kind] = encode_mask(alpha)
             elif kind == "color_composite":
@@ -222,9 +218,7 @@ class ImagePipeline:
                 composite = composite_over_image(image, alpha, req.background_image)
                 outputs[kind] = encode_image(composite, "png")
             elif kind == "blurred_background":
-                composite = composite_blurred_background(
-                    image, alpha, blur_sigma=req.blur_sigma
-                )
+                composite = composite_blurred_background(image, alpha, blur_sigma=req.blur_sigma)
                 outputs[kind] = encode_image(composite, "png")
             else:  # pragma: no cover - Literal makes this unreachable via typing
                 raise ValueError(f"unknown output kind: {kind!r}")

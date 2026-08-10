@@ -430,9 +430,7 @@ class BenchmarkHarness:
             peak_vram_bytes=peak_memory_bytes(device),
         )
 
-    def _measure_accuracy(
-        self, model: SegmentationModel, case: BenchmarkCase
-    ) -> dict[str, float]:
+    def _measure_accuracy(self, model: SegmentationModel, case: BenchmarkCase) -> dict[str, float]:
         """Full metric bundle over the eval set, batched at the case's batch size."""
         samples = self.samples()
         metrics: list[MaskMetrics] = []
@@ -450,9 +448,7 @@ class BenchmarkHarness:
         out["refinement_enabled"] = 1.0 if case.refine else 0.0
         return out
 
-    def _measure_stages(
-        self, model: SegmentationModel, case: BenchmarkCase
-    ) -> dict[str, float]:
+    def _measure_stages(self, model: SegmentationModel, case: BenchmarkCase) -> dict[str, float]:
         """Per-stage breakdown, so a slow row can be attributed to a cause.
 
         Frequently the answer is not the model: for the classical baseline at 320 px,
@@ -519,7 +515,9 @@ def _percentile(sorted_values: list[float], pct: float) -> float:
 def _summarise(results: Sequence[CaseResult]) -> dict[str, Any]:
     ok = [r for r in results if r.status == "ok"]
     with_accuracy = [r for r in ok if r.accuracy_valid and r.accuracy]
-    best = max(with_accuracy, key=lambda r: r.accuracy["iou"], default=None) if with_accuracy else None
+    best = (
+        max(with_accuracy, key=lambda r: r.accuracy["iou"], default=None) if with_accuracy else None
+    )
     fastest = min(
         (r for r in ok if r.latency),
         key=lambda r: r.latency.per_image_p50_ms,  # type: ignore[union-attr]

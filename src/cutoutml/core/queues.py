@@ -45,7 +45,9 @@ TASK_ROUTES: Final[dict[str, dict[str, str]]] = {
 }
 
 
-def select_queue(kind: str, *, device: str | None = None, gpu_available: bool | None = None) -> QueueName:
+def select_queue(
+    kind: str, *, device: str | None = None, gpu_available: bool | None = None
+) -> QueueName:
     """Choose the queue for a job.
 
     ``device`` is the *request*, ``gpu_available`` is what the cluster can actually

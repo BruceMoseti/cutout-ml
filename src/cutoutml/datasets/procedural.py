@@ -40,9 +40,7 @@ per boundary pixel, which is plenty and costs 16x the raster area."""
 # --------------------------------------------------------------------- noise
 
 
-def value_noise(
-    rng: np.random.Generator, size: tuple[int, int], cells: int = 4
-) -> np.ndarray:
+def value_noise(rng: np.random.Generator, size: tuple[int, int], cells: int = 4) -> np.ndarray:
     """Smooth ``[0, 1]`` noise from a bicubically upsampled random lattice.
 
     A true Perlin implementation buys nothing here: what matters is a smooth,
@@ -93,9 +91,9 @@ def fbm(
 def _downsample_mask(mask: np.ndarray, factor: int = SUPERSAMPLE) -> np.ndarray:
     """Box-average a supersampled binary mask into a fractional-alpha mask."""
     h, w = mask.shape[0] // factor, mask.shape[1] // factor
-    return cv2.resize(
-        mask.astype(np.float32), (w, h), interpolation=cv2.INTER_AREA
-    ).astype(np.float32)
+    return cv2.resize(mask.astype(np.float32), (w, h), interpolation=cv2.INTER_AREA).astype(
+        np.float32
+    )
 
 
 def blob_mask(
@@ -273,9 +271,7 @@ def glyph_mask(
     font = _load_font(int(min(hh, ww) * rng.uniform(0.62, 0.92)))
     bbox = draw.textbbox((0, 0), char, font=font)
     tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
-    draw.text(
-        ((ww - tw) / 2 - bbox[0], (hh - th) / 2 - bbox[1]), char, fill=255, font=font
-    )
+    draw.text(((ww - tw) / 2 - bbox[0], (hh - th) / 2 - bbox[1]), char, fill=255, font=font)
 
     mask = _downsample_mask((np.asarray(img) > 127).astype(np.uint8))
     angle = rng.uniform(-25.0, 25.0)

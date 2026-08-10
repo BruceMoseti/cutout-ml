@@ -115,9 +115,7 @@ class RealSegmentationDataset:
         self.max_side = max_side
 
         if self.family not in LAYOUTS:
-            raise ValueError(
-                f"unknown dataset family {family!r}; supported: {sorted(LAYOUTS)}"
-            )
+            raise ValueError(f"unknown dataset family {family!r}; supported: {sorted(LAYOUTS)}")
         splits = LAYOUTS[self.family]
         if split not in splits:
             raise ValueError(
@@ -167,9 +165,7 @@ class RealSegmentationDataset:
                 f"no image/mask pairs found under {self.image_dir} and {self.mask_dir}"
             )
         if missing:
-            log.warning(
-                "real_dataset_unpaired_images", count=len(missing), sample=missing[:5]
-            )
+            log.warning("real_dataset_unpaired_images", count=len(missing), sample=missing[:5])
         return sorted(pairs, key=lambda p: p[0].stem)
 
     def __len__(self) -> int:

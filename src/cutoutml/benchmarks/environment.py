@@ -25,8 +25,16 @@ from cutoutml.core.config import REPO_ROOT
 from cutoutml.core.devices import cuda_available
 
 TRACKED_PACKAGES = (
-    "torch", "numpy", "opencv-python-headless", "onnx", "onnxruntime",
-    "pillow", "scipy", "fastapi", "sqlalchemy", "celery",
+    "torch",
+    "numpy",
+    "opencv-python-headless",
+    "onnx",
+    "onnxruntime",
+    "pillow",
+    "scipy",
+    "fastapi",
+    "sqlalchemy",
+    "celery",
 )
 
 
@@ -78,9 +86,7 @@ class Environment:
 
 def _run(cmd: list[str], cwd: Path | None = None) -> str | None:
     try:
-        proc = subprocess.run(
-            cmd, capture_output=True, text=True, check=False, cwd=cwd, timeout=10
-        )
+        proc = subprocess.run(cmd, capture_output=True, text=True, check=False, cwd=cwd, timeout=10)
     except (OSError, subprocess.TimeoutExpired):
         return None
     if proc.returncode != 0:
@@ -155,9 +161,14 @@ def relevant_env_flags() -> dict[str, str]:
     2x, so they are recorded rather than assumed.
     """
     keys = (
-        "OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS",
-        "TORCH_NUM_THREADS", "CUDA_VISIBLE_DEVICES", "ORT_TENSORRT_FP16_ENABLE",
-        "CUTOUTML_DEVICE", "CUTOUTML_PRECISION",
+        "OMP_NUM_THREADS",
+        "MKL_NUM_THREADS",
+        "OPENBLAS_NUM_THREADS",
+        "TORCH_NUM_THREADS",
+        "CUDA_VISIBLE_DEVICES",
+        "ORT_TENSORRT_FP16_ENABLE",
+        "CUTOUTML_DEVICE",
+        "CUTOUTML_PRECISION",
     )
     return {k: os.environ[k] for k in keys if k in os.environ}
 

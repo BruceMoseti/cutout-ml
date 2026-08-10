@@ -152,7 +152,8 @@ def image_gradient(x: torch.Tensor) -> torch.Tensor:
     gray = (0.299 * x[:, 0] + 0.587 * x[:, 1] + 0.114 * x[:, 2]).unsqueeze(1)
     kx = torch.tensor(
         [[-1.0, 0.0, 1.0], [-2.0, 0.0, 2.0], [-1.0, 0.0, 1.0]],
-        dtype=gray.dtype, device=gray.device,
+        dtype=gray.dtype,
+        device=gray.device,
     ).view(1, 1, 3, 3)
     gx = F.conv2d(gray, kx, padding=1)
     gy = F.conv2d(gray, kx.transpose(2, 3), padding=1)
@@ -215,9 +216,7 @@ class CutoutNet(nn.Module):
         stages: list[nn.Module] = []
         in_ch = stem_width
         for out_ch, depth in zip(channels, depths, strict=True):
-            blocks: list[nn.Module] = [
-                InvertedResidual(in_ch, out_ch, stride=2, expand=expand)
-            ]
+            blocks: list[nn.Module] = [InvertedResidual(in_ch, out_ch, stride=2, expand=expand)]
             blocks += [
                 InvertedResidual(out_ch, out_ch, stride=1, expand=expand)
                 for _ in range(max(0, depth - 1))

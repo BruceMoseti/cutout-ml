@@ -65,7 +65,8 @@ def dice_loss(logits: torch.Tensor, target: torch.Tensor, eps: float = 1e-6) -> 
 def _sobel(x: torch.Tensor) -> torch.Tensor:
     kx = torch.tensor(
         [[-1.0, 0.0, 1.0], [-2.0, 0.0, 2.0], [-1.0, 0.0, 1.0]],
-        dtype=x.dtype, device=x.device,
+        dtype=x.dtype,
+        device=x.device,
     ).view(1, 1, 3, 3)
     gx = F.conv2d(x, kx, padding=1)
     gy = F.conv2d(x, kx.transpose(2, 3), padding=1)

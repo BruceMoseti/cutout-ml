@@ -68,7 +68,9 @@ class LetterboxInfo:
 # --------------------------------------------------------------------- decoding
 
 
-def decode_image(data: bytes, *, apply_exif: bool = True, max_pixels: int | None = None) -> np.ndarray:
+def decode_image(
+    data: bytes, *, apply_exif: bool = True, max_pixels: int | None = None
+) -> np.ndarray:
     """Decode encoded image bytes into an RGB ``uint8`` array.
 
     PIL is used rather than ``cv2.imdecode`` because it exposes EXIF and handles
@@ -80,8 +82,7 @@ def decode_image(data: bytes, *, apply_exif: bool = True, max_pixels: int | None
             img = ImageOps.exif_transpose(img) or img
         if max_pixels is not None and img.width * img.height > max_pixels:
             raise ValueError(
-                f"image has {img.width * img.height} pixels which exceeds the "
-                f"limit of {max_pixels}"
+                f"image has {img.width * img.height} pixels which exceeds the limit of {max_pixels}"
             )
         rgb = img.convert("RGB")
         return np.asarray(rgb, dtype=np.uint8)

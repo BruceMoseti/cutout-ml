@@ -176,9 +176,7 @@ def validate_upload(
         vague = {"application/octet-stream", "binary/octet-stream", ""}
         if declared not in vague and declared != detected.mime:
             # Log it: a systematic mismatch is either a broken client or a probe.
-            log.warning(
-                "upload_content_type_mismatch", declared=declared, detected=detected.mime
-            )
+            log.warning("upload_content_type_mismatch", declared=declared, detected=detected.mime)
             raise UploadValidationError(
                 f"declared Content-Type {declared} does not match the actual file "
                 f"contents ({detected.mime})",

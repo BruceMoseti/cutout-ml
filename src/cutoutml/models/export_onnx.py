@@ -53,8 +53,11 @@ def export(
     spec = resolve_spec(model_name)
     if output is None:
         weights_dir = get_settings().model_weights_dir
-        output = weights_dir / f"{model_name.split('-')[0]}" / f"{spec.name}-{model.variant}.onnx" \
-            if hasattr(model, "variant") else weights_dir / f"{spec.name}.onnx"
+        output = (
+            weights_dir / f"{model_name.split('-')[0]}" / f"{spec.name}-{model.variant}.onnx"
+            if hasattr(model, "variant")
+            else weights_dir / f"{spec.name}.onnx"
+        )
     path = Path(output)
     model.to_onnx(path, opset=opset, dynamic_batch=dynamic_batch)
     log.info(
@@ -127,9 +130,7 @@ def verify_parity(
             continue
 
         logit_diff = float(np.abs(torch_logits - onnx_logits).max())
-        prob_diff = float(
-            np.abs(_sigmoid(torch_logits) - _sigmoid(onnx_logits)).max()
-        )
+        prob_diff = float(np.abs(_sigmoid(torch_logits) - _sigmoid(onnx_logits)).max())
         # An 8-bit alpha step is 1/255 ~= 0.0039, so express the difference in those
         # units: that is the number a reader can reason about.
         alpha_levels = prob_diff * 255.0

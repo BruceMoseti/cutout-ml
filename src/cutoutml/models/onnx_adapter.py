@@ -49,9 +49,7 @@ def available_providers() -> list[str]:
     return list(ort.get_available_providers())
 
 
-def select_providers(
-    requested: Sequence[str] | None = None, *, device: str = "auto"
-) -> list[str]:
+def select_providers(requested: Sequence[str] | None = None, *, device: str = "auto") -> list[str]:
     """Intersect the priority list with what is installed, honouring ``device``.
 
     ``device="cpu"`` forces CPU-only even on a machine with CUDA, which the
@@ -176,9 +174,7 @@ class OnnxAdapter(SegmentationModel):
             logits = logits[:, None]
         return torch.from_numpy(logits)
 
-    def postprocess(
-        self, logits: torch.Tensor, infos: Sequence[LetterboxInfo]
-    ) -> list[np.ndarray]:
+    def postprocess(self, logits: torch.Tensor, infos: Sequence[LetterboxInfo]) -> list[np.ndarray]:
         return super().postprocess(logits, infos)
 
     def metadata(self) -> ModelMetadata:

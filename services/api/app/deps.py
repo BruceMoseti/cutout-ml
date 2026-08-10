@@ -217,9 +217,7 @@ def owned_job(
     user: CurrentUser,
 ) -> InferenceJob:
     """Fetch a job that belongs to the caller, or 404."""
-    stmt = select(InferenceJob).where(
-        InferenceJob.id == job_id, InferenceJob.owner_id == user.id
-    )
+    stmt = select(InferenceJob).where(InferenceJob.id == job_id, InferenceJob.owner_id == user.id)
     job = session.execute(stmt).scalar_one_or_none()
     if job is None:
         raise not_found("job", job_id)

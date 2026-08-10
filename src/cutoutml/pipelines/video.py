@@ -288,17 +288,18 @@ class VideoPipeline:
 
         writer_ctx = self._make_writer(dst, req, info, (out_w, out_h), src, ffmpeg)
 
-        with FrameReader(
-            src,
-            width=info.width,
-            height=info.height,
-            ffmpeg=ffmpeg,
-            scale=req.scale_to,
-            max_frames=req.max_frames,
-        ) as reader, writer_ctx as writer:
-            for batch in _batched(
-                _decode_frames(reader, out_h, out_w), req.batch_size
-            ):
+        with (
+            FrameReader(
+                src,
+                width=info.width,
+                height=info.height,
+                ffmpeg=ffmpeg,
+                scale=req.scale_to,
+                max_frames=req.max_frames,
+            ) as reader,
+            writer_ctx as writer,
+        ):
+            for batch in _batched(_decode_frames(reader, out_h, out_w), req.batch_size):
                 alphas = self.model.infer(batch)
                 for frame, alpha in zip(batch, alphas, strict=True):
                     refined = refine_alpha(alpha, frame, req.refine)
@@ -632,9 +633,15 @@ def frames_to_video(
     dst = Path(destination)
     dst.parent.mkdir(parents=True, exist_ok=True)
     cmd = [
-        shutil.which(ffmpeg) or ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
-        "-framerate", f"{fps:.6f}",
-        "-i", str(src / pattern),
+        shutil.which(ffmpeg) or ffmpeg,
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-framerate",
+        f"{fps:.6f}",
+        "-i",
+        str(src / pattern),
         *encoder_args(container, alpha=alpha),
         str(dst),
     ]

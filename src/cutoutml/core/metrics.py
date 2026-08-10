@@ -123,7 +123,9 @@ def precision_recall(
     return prec, rec
 
 
-def f_beta(pred: np.ndarray, gt: np.ndarray, threshold: float = 0.5, beta_sq: float = FBETA_SQ) -> float:
+def f_beta(
+    pred: np.ndarray, gt: np.ndarray, threshold: float = 0.5, beta_sq: float = FBETA_SQ
+) -> float:
     """F-beta at a fixed threshold with beta^2 = 0.3 by default."""
     prec, rec = precision_recall(pred, gt, threshold)
     denom = beta_sq * prec + rec
@@ -251,9 +253,7 @@ def boundary_f1(
     if p_edge.sum() == 0 or g_edge.sum() == 0:
         return 0.0
 
-    k = cv2.getStructuringElement(
-        cv2.MORPH_ELLIPSE, (2 * tolerance + 1, 2 * tolerance + 1)
-    )
+    k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * tolerance + 1, 2 * tolerance + 1))
     p_dil = cv2.dilate(p_edge, k)
     g_dil = cv2.dilate(g_edge, k)
 

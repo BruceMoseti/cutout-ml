@@ -232,9 +232,7 @@ class ClassicalBaseline(SegmentationModel):
             mask = cv2.GaussianBlur(mask.astype(np.float32), (0, 0), self.soften)
         return np.clip(mask, 0.0, 1.0).astype(np.float32)
 
-    def postprocess(
-        self, logits: torch.Tensor, infos: Sequence[LetterboxInfo]
-    ) -> list[np.ndarray]:
+    def postprocess(self, logits: torch.Tensor, infos: Sequence[LetterboxInfo]) -> list[np.ndarray]:
         probs = torch.sigmoid(logits.float())
         if probs.ndim == 4:
             probs = probs[:, 0]
@@ -254,7 +252,11 @@ class ClassicalBaseline(SegmentationModel):
                 "Zero-training baseline. Runs on CPU regardless of the requested "
                 "device; reported device is the requested one for interface parity."
             ),
-            **{**self._base_metadata_kwargs(), "randomly_initialized": False, "accuracy_valid": True},
+            **{
+                **self._base_metadata_kwargs(),
+                "randomly_initialized": False,
+                "accuracy_valid": True,
+            },
         )
 
 
@@ -275,7 +277,9 @@ class TrivialBaseline(SegmentationModel):
     highly, the generator has a centre-prior bias that inflates every other row.
     """
 
-    def __init__(self, *, method: TrivialMethod = "center_ellipse", radius_frac: float = 0.32, **kwargs: Any) -> None:
+    def __init__(
+        self, *, method: TrivialMethod = "center_ellipse", radius_frac: float = 0.32, **kwargs: Any
+    ) -> None:
         kwargs.setdefault("name", f"trivial-{method}")
         kwargs.setdefault("input_size", (320, 320))
         super().__init__(**kwargs)
@@ -314,5 +318,9 @@ class TrivialBaseline(SegmentationModel):
                 "Content-blind reference. Any model that does not clearly beat this "
                 "row has learned nothing about the images."
             ),
-            **{**self._base_metadata_kwargs(), "randomly_initialized": False, "accuracy_valid": True},
+            **{
+                **self._base_metadata_kwargs(),
+                "randomly_initialized": False,
+                "accuracy_valid": True,
+            },
         )

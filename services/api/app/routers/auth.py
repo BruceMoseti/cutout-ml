@@ -45,9 +45,7 @@ _DUMMY_HASH = hash_password("timing-equalisation-placeholder")
     status_code=status.HTTP_201_CREATED,
     summary="Create an account",
 )
-def register(
-    payload: RegisterRequest, session: SessionDep, settings: SettingsDep
-) -> TokenResponse:
+def register(payload: RegisterRequest, session: SessionDep, settings: SettingsDep) -> TokenResponse:
     user = User(
         email=payload.email.lower(),
         password_hash=hash_password(payload.password),

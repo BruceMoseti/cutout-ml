@@ -86,7 +86,9 @@ def cmd_segment(args: argparse.Namespace) -> int:
         return 2
 
     background = decode_image(Path(args.background).read_bytes()) if args.background else None
-    model = get_model(args.model or settings.default_model, device=args.device, precision=args.precision)
+    model = get_model(
+        args.model or settings.default_model, device=args.device, precision=args.precision
+    )
     request = ImageRequest(
         outputs=tuple(args.outputs),
         background_color=tuple(args.background_color),  # type: ignore[arg-type]
@@ -124,7 +126,9 @@ def cmd_video(args: argparse.Namespace) -> int:
         return 2
 
     background = decode_image(Path(args.background).read_bytes()) if args.background else None
-    model = get_model(args.model or settings.default_model, device=args.device, precision=args.precision)
+    model = get_model(
+        args.model or settings.default_model, device=args.device, precision=args.precision
+    )
     request = VideoRequest(
         mode=args.mode,
         container=args.container,

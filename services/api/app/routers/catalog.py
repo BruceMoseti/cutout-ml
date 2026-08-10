@@ -129,6 +129,4 @@ def get_benchmark(run_id: str, settings: SettingsDep) -> dict[str, Any]:
     for path in _result_files(settings.benchmark_results_dir):
         if path.stem == run_id:
             return load_report(path)
-    raise ApiError(
-        status.HTTP_404_NOT_FOUND, "benchmark_not_found", f"no benchmark run {run_id!r}"
-    )
+    raise ApiError(status.HTTP_404_NOT_FOUND, "benchmark_not_found", f"no benchmark run {run_id!r}")

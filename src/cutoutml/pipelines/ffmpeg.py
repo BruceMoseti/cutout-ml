@@ -82,8 +82,14 @@ def probe(path: Path | str, *, ffprobe: str = "ffprobe") -> VideoInfo:
     """
     binary = _binary("ffprobe", ffprobe)
     cmd = [
-        binary, "-v", "error", "-print_format", "json",
-        "-show_streams", "-show_format", str(path),
+        binary,
+        "-v",
+        "error",
+        "-print_format",
+        "json",
+        "-show_streams",
+        "-show_format",
+        str(path),
     ]
     proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
     if proc.returncode != 0:
@@ -98,9 +104,7 @@ def probe(path: Path | str, *, ffprobe: str = "ffprobe") -> VideoInfo:
         raise UnsupportedCodecError(f"no video stream found in {path}")
 
     fps = _parse_fraction(video.get("avg_frame_rate") or video.get("r_frame_rate") or "0/0")
-    duration = float(
-        video.get("duration") or data.get("format", {}).get("duration") or 0.0
-    )
+    duration = float(video.get("duration") or data.get("format", {}).get("duration") or 0.0)
     declared = video.get("nb_frames")
     if declared and str(declared).isdigit() and int(declared) > 0:
         frame_count = int(declared)
@@ -281,12 +285,22 @@ class FrameWriter:
 
     def _command(self) -> list[str]:
         cmd = [
-            self._binary, "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
-            "-f", "rawvideo",
-            "-pix_fmt", self.pix_fmt,
-            "-s", f"{self.width}x{self.height}",
-            "-r", f"{self.fps:.6f}",
-            "-i", "-",
+            self._binary,
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-nostdin",
+            "-y",
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            self.pix_fmt,
+            "-s",
+            f"{self.width}x{self.height}",
+            "-r",
+            f"{self.fps:.6f}",
+            "-i",
+            "-",
         ]
         if self.audio_source is not None:
             # Copy the original audio rather than re-encoding it: it is untouched by
@@ -386,17 +400,31 @@ def encoder_args(
                 "MP4/H.264 cannot carry a usable alpha channel; request 'webm' for "
                 "transparency or supply a background for compositing"
             )
-        args = ["-c:v", "libx264", "-preset", preset, "-pix_fmt", "yuv420p", "-movflags", "+faststart"]
+        args = [
+            "-c:v",
+            "libx264",
+            "-preset",
+            preset,
+            "-pix_fmt",
+            "yuv420p",
+            "-movflags",
+            "+faststart",
+        ]
         args += ["-b:v", bitrate] if bitrate else ["-crf", str(crf)]
         return args
 
     if fmt in {"webm", "vp9"}:
         args = [
-            "-c:v", "libvpx-vp9",
-            "-pix_fmt", "yuva420p" if alpha else "yuv420p",
-            "-row-mt", "1",
-            "-deadline", "good",
-            "-cpu-used", "2",
+            "-c:v",
+            "libvpx-vp9",
+            "-pix_fmt",
+            "yuva420p" if alpha else "yuv420p",
+            "-row-mt",
+            "1",
+            "-deadline",
+            "good",
+            "-cpu-used",
+            "2",
         ]
         if alpha:
             args += ["-auto-alt-ref", "0"]
@@ -410,18 +438,20 @@ def encoder_args(
     if fmt == "qtrle":
         return ["-c:v", "qtrle", "-pix_fmt", "argb"]
 
-    raise ValueError(
-        f"unsupported container {container!r}; expected mp4, webm, mov or qtrle"
-    )
+    raise ValueError(f"unsupported container {container!r}; expected mp4, webm, mov or qtrle")
 
 
 ALPHA_CONTAINERS: tuple[str, ...] = ("webm", "mov", "qtrle")
 """Containers whose codecs are *specified* to carry alpha. Not a capability claim."""
 
 _CONTAINER_EXTENSIONS: dict[str, str] = {
-    "mp4": "mp4", "h264": "mp4", "m4v": "m4v",
-    "webm": "webm", "vp9": "webm",
-    "mov": "mov", "prores": "mov",
+    "mp4": "mp4",
+    "h264": "mp4",
+    "m4v": "m4v",
+    "webm": "webm",
+    "vp9": "webm",
+    "mov": "mov",
+    "prores": "mov",
     # qtrle is a *codec*, and its container is QuickTime. ffmpeg picks the muxer
     # from the extension, so writing "out.qtrle" fails to select one at all.
     "qtrle": "mov",
@@ -453,9 +483,22 @@ def _decode_alpha_range(path: Path, size: tuple[int, int], ffmpeg: str) -> tuple
     """Decode ``path`` to RGBA and return ``(min_alpha, max_alpha)``, or ``None``."""
     width, height = size
     proc = subprocess.run(
-        [ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-i", str(path),
-         "-f", "rawvideo", "-pix_fmt", "rgba", "-"],
-        capture_output=True, check=False,
+        [
+            ffmpeg,
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-nostdin",
+            "-i",
+            str(path),
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "rgba",
+            "-",
+        ],
+        capture_output=True,
+        check=False,
     )
     stride = width * height * 4
     if proc.returncode != 0 or len(proc.stdout) < stride:
@@ -505,9 +548,24 @@ def _alpha_roundtrip_works(container: str, ffmpeg: str) -> bool:
             frame += bytes([200, 40, 40, 0]) * (size[0] // 2)
             frame += bytes([200, 40, 40, 255]) * (size[0] // 2)
         cmd = [
-            binary, "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
-            "-f", "rawvideo", "-pix_fmt", "rgba", "-s", f"{size[0]}x{size[1]}",
-            "-r", "10", "-i", "-", *args, str(out),
+            binary,
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-nostdin",
+            "-y",
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "rgba",
+            "-s",
+            f"{size[0]}x{size[1]}",
+            "-r",
+            "10",
+            "-i",
+            "-",
+            *args,
+            str(out),
         ]
         proc = subprocess.run(cmd, input=bytes(frame) * 2, capture_output=True, check=False)
         if proc.returncode != 0 or not out.is_file():
@@ -565,10 +623,19 @@ def has_alpha(path: Path | str, *, ffprobe: str = "ffprobe") -> bool:
     binary = _binary("ffprobe", ffprobe)
     proc = subprocess.run(
         [
-            binary, "-v", "error", "-select_streams", "v:0",
-            "-show_streams", "-print_format", "json", str(path),
+            binary,
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_streams",
+            "-print_format",
+            "json",
+            str(path),
         ],
-        capture_output=True, text=True, check=False,
+        capture_output=True,
+        text=True,
+        check=False,
     )
     if proc.returncode != 0:
         return False
@@ -583,9 +650,22 @@ def has_alpha(path: Path | str, *, ffprobe: str = "ffprobe") -> bool:
 
 ALPHA_PIX_FMTS = frozenset(
     {
-        "yuva420p", "yuva420p10le", "yuva422p", "yuva422p10le",
-        "yuva444p", "yuva444p10le", "yuva444p12le", "yuva444p16le",
-        "rgba", "argb", "bgra", "abgr", "rgba64le", "rgba64be", "ya8", "ya16le",
+        "yuva420p",
+        "yuva420p10le",
+        "yuva422p",
+        "yuva422p10le",
+        "yuva444p",
+        "yuva444p10le",
+        "yuva444p12le",
+        "yuva444p16le",
+        "rgba",
+        "argb",
+        "bgra",
+        "abgr",
+        "rgba64le",
+        "rgba64be",
+        "ya8",
+        "ya16le",
     }
 )
 """Pixel formats that carry alpha in-frame (ProRes 4444, QTRLE, PNG sequences)."""

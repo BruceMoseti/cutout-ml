@@ -61,8 +61,7 @@ class WeightsUnavailableError(RuntimeError):
         self.model = model
         self.expected_path = Path(expected_path)
         message = (
-            f"No weights found for model '{model}'. Expected a checkpoint at "
-            f"{self.expected_path}."
+            f"No weights found for model '{model}'. Expected a checkpoint at {self.expected_path}."
         )
         if hint:
             message += f" {hint}"
@@ -187,9 +186,7 @@ class SegmentationModel(abc.ABC):
 
     def _ensure_loaded(self) -> None:
         if not self._loaded:
-            raise RuntimeError(
-                f"model '{self.name}' used before load(); call load() first"
-            )
+            raise RuntimeError(f"model '{self.name}' used before load(); call load() first")
 
     # ------------------------------------------------------------- preprocessing
 
@@ -235,9 +232,7 @@ class SegmentationModel(abc.ABC):
             probs = probs[:, 0]
         arr = probs.cpu().numpy()
         if arr.shape[0] != len(infos):
-            raise ValueError(
-                f"got {arr.shape[0]} predictions for {len(infos)} letterbox infos"
-            )
+            raise ValueError(f"got {arr.shape[0]} predictions for {len(infos)} letterbox infos")
         return [unletterbox_mask(arr[i], infos[i]) for i in range(len(infos))]
 
     # ----------------------------------------------------------------- one-shot

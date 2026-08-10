@@ -124,7 +124,13 @@ def classify(exc: BaseException) -> Classification:
     # ------------------------------------------------------- transient by default
     if isinstance(exc, (ConnectionError, TimeoutError)):
         return Classification(FailureKind.RETRYABLE, "connection_error", f"{name}: {text}")
-    if name in {"OperationalError", "InterfaceError", "DBAPIError", "RedisError", "ConnectionError"}:
+    if name in {
+        "OperationalError",
+        "InterfaceError",
+        "DBAPIError",
+        "RedisError",
+        "ConnectionError",
+    }:
         return Classification(FailureKind.RETRYABLE, "infrastructure_error", f"{name}: {text}")
     if _TRANSIENT_PATTERNS.search(text):
         return Classification(FailureKind.RETRYABLE, "transient_error", f"{name}: {text}")
@@ -137,7 +143,9 @@ def classify(exc: BaseException) -> Classification:
     return Classification(FailureKind.NON_RETRYABLE, "internal_error", f"{name}: {text}")
 
 
-def retry_delay(attempt: int, *, base: float = 2.0, cap: float = 120.0, jitter: float = 0.25) -> float:
+def retry_delay(
+    attempt: int, *, base: float = 2.0, cap: float = 120.0, jitter: float = 0.25
+) -> float:
     """Exponential backoff with jitter, in seconds.
 
     Jitter is not decoration: without it, N tasks that failed together because one

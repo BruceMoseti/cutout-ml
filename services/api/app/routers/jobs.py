@@ -67,9 +67,7 @@ def get_job(job: OwnedJob, session: SessionDep) -> JobDetailResponse:
     in a system that mutates a single row per job.
     """
     runs = session.execute(
-        select(InferenceRun)
-        .where(InferenceRun.job_id == job.id)
-        .order_by(InferenceRun.attempt)
+        select(InferenceRun).where(InferenceRun.job_id == job.id).order_by(InferenceRun.attempt)
     ).scalars()
     detail = JobDetailResponse.model_validate(job)
     detail.runs = [JobRunResponse.model_validate(run) for run in runs]
@@ -77,9 +75,7 @@ def get_job(job: OwnedJob, session: SessionDep) -> JobDetailResponse:
 
 
 @router.get("/{job_id}/result", response_model=ResultResponse, summary="Job outputs")
-def get_job_result(
-    job: OwnedJob, storage: StorageDep, settings: SettingsDep
-) -> ResultResponse:
+def get_job_result(job: OwnedJob, storage: StorageDep, settings: SettingsDep) -> ResultResponse:
     if job.status != JobStatus.SUCCEEDED.value or not job.result:
         raise ApiError(
             status.HTTP_409_CONFLICT,

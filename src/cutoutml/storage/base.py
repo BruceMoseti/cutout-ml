@@ -135,9 +135,7 @@ def build_storage_key(
             raise ValueError(f"unsafe storage extension: {extension!r}")
         ext = f".{candidate}"
 
-    return (
-        f"{safe_kind}/{safe_user}/{stamp:%Y/%m/%d}/{token}{ext}"
-    )
+    return f"{safe_kind}/{safe_user}/{stamp:%Y/%m/%d}/{token}{ext}"
 
 
 class Storage(abc.ABC):

@@ -89,7 +89,9 @@ class Settings(BaseSettings):
     dataset_cache_dir: Path = REPO_ROOT / "artifacts" / "datasets"
     request_id_header: str = "X-Request-ID"
 
-    @field_validator("storage_root", "model_weights_dir", "benchmark_results_dir", "dataset_cache_dir")
+    @field_validator(
+        "storage_root", "model_weights_dir", "benchmark_results_dir", "dataset_cache_dir"
+    )
     @classmethod
     def _expand(cls, value: Path) -> Path:
         return Path(value).expanduser()

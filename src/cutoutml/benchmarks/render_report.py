@@ -171,7 +171,11 @@ def environment_block(report: dict[str, Any]) -> str:
     git = env.get("git", {})
     libs = env.get("library_versions", {})
     lib_text = ", ".join(f"{k} {v}" for k, v in sorted(libs.items()) if v != "not-installed")
-    dirty = " (**working tree dirty** - numbers are not attributable to this commit)" if git.get("dirty") else ""
+    dirty = (
+        " (**working tree dirty** - numbers are not attributable to this commit)"
+        if git.get("dirty")
+        else ""
+    )
     return "\n".join(
         [
             f"- **Hardware**: {env['hardware']}",
@@ -208,10 +212,7 @@ def dataset_block(report: dict[str, Any]) -> str:
         )
     splits = dataset.get("splits") or []
     if splits:
-        lines.append(
-            "- **Splits**: "
-            + ", ".join(f"{s['name']}={s['count']}" for s in splits)
-        )
+        lines.append("- **Splits**: " + ", ".join(f"{s['name']}={s['count']}" for s in splits))
     cfg = report.get("config", {})
     lines.append(
         f"- **Harness**: {cfg.get('warmup')} warmup + {cfg.get('repetitions')} timed "
@@ -410,9 +411,7 @@ def render(
 
     report = load_report(report_path) if report_path else latest_report()
     if report is None:
-        raise FileNotFoundError(
-            "no benchmark results found; run `python benchmarks/run.py` first"
-        )
+        raise FileNotFoundError("no benchmark results found; run `python benchmarks/run.py` first")
 
     docs = Path(docs_path) if docs_path else REPO_ROOT / "docs" / "benchmarks.md"
     docs.parent.mkdir(parents=True, exist_ok=True)
@@ -441,18 +440,14 @@ def update_readme(path: Path, table: str) -> bool:
     end = text.find(README_END)
     if start == -1 or end == -1 or end < start:
         return False
-    new_text = (
-        text[: start + len(README_BEGIN)] + "\n" + table + "\n" + text[end:]
-    )
+    new_text = text[: start + len(README_BEGIN)] + "\n" + table + "\n" + text[end:]
     path.write_text(new_text)
     return True
 
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Render benchmark JSON into Markdown")
-    p.add_argument(
-        "report", nargs="?", type=Path, help="path to a results JSON (default: latest)"
-    )
+    p.add_argument("report", nargs="?", type=Path, help="path to a results JSON (default: latest)")
     p.add_argument("--docs", type=Path, default=None)
     p.add_argument("--readme", type=Path, default=None)
     p.add_argument("--print-table", action="store_true", help="print the README table only")

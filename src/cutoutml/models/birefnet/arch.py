@@ -55,8 +55,14 @@ class ConvBNAct(nn.Sequential):
         padding = dilation * (kernel - 1) // 2
         layers: list[nn.Module] = [
             nn.Conv2d(
-                in_ch, out_ch, kernel, stride=stride, padding=padding,
-                dilation=dilation, groups=groups, bias=False,
+                in_ch,
+                out_ch,
+                kernel,
+                stride=stride,
+                padding=padding,
+                dilation=dilation,
+                groups=groups,
+                bias=False,
             ),
             nn.BatchNorm2d(out_ch),
         ]
@@ -105,7 +111,9 @@ class GlobalContext(nn.Module):
         feats = [x]
         for scale, branch in zip(self.scales, self.branches, strict=True):
             pooled = F.adaptive_avg_pool2d(x, scale)
-            feats.append(F.interpolate(branch(pooled), size=size, mode="bilinear", align_corners=False))
+            feats.append(
+                F.interpolate(branch(pooled), size=size, mode="bilinear", align_corners=False)
+            )
         feats.append(self.dilated(x))
         return self.fuse(torch.cat(feats, dim=1))  # type: ignore[no-any-return]
 
@@ -123,7 +131,8 @@ def sobel_gradient(x: torch.Tensor) -> torch.Tensor:
         gray = x[:, :1]
     kx = torch.tensor(
         [[-1.0, 0.0, 1.0], [-2.0, 0.0, 2.0], [-1.0, 0.0, 1.0]],
-        dtype=gray.dtype, device=gray.device,
+        dtype=gray.dtype,
+        device=gray.device,
     ).view(1, 1, 3, 3)
     ky = kx.transpose(2, 3)
     gx = F.conv2d(gray, kx, padding=1)
@@ -209,10 +218,7 @@ class BiRefNetCompact(nn.Module):
 
         # ---- encoder: four strided stages -> 1/4, 1/8, 1/16, 1/32
         self.stages = nn.ModuleList(
-            [
-                self._make_stage(width if i == 0 else chs[i - 1], chs[i], depths[i])
-                for i in range(4)
-            ]
+            [self._make_stage(width if i == 0 else chs[i - 1], chs[i], depths[i]) for i in range(4)]
         )
 
         # ---- localization module

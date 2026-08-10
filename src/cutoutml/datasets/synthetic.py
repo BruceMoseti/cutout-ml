@@ -147,7 +147,9 @@ class SyntheticSegmentationDataset:
         for i in range(self.count):
             yield self.sample(i)
 
-    def manifest(self, splits: dict[str, int] | None = None, fingerprint_n: int = 8) -> DatasetManifest:
+    def manifest(
+        self, splits: dict[str, int] | None = None, fingerprint_n: int = 8
+    ) -> DatasetManifest:
         """Build a manifest describing this dataset (and sibling splits)."""
         split_counts = splits or {self.split: self.count}
         specs = [

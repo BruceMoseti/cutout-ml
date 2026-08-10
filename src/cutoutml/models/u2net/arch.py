@@ -181,10 +181,15 @@ class U2Net(nn.Module):
         self.decoders = nn.ModuleList(decoders)  # order: stage5d, 4d, 3d, 2d, 1d
 
         # Side output heads: one per decoder stage plus one from the deepest encoder.
-        side_channels = [stages[0][2], stages[1][2], stages[2][2], stages[3][2], stages[4][2], stages[5][2]]
-        self.side = nn.ModuleList(
-            [nn.Conv2d(c, out_ch, 3, padding=1) for c in side_channels]
-        )
+        side_channels = [
+            stages[0][2],
+            stages[1][2],
+            stages[2][2],
+            stages[3][2],
+            stages[4][2],
+            stages[5][2],
+        ]
+        self.side = nn.ModuleList([nn.Conv2d(c, out_ch, 3, padding=1) for c in side_channels])
         self.outconv = nn.Conv2d(out_ch * 6, out_ch, 1)
 
         self._init_weights()

@@ -154,7 +154,9 @@ class RateLimiter:
                 return None
         return self._script
 
-    def check(self, identity: str, *, cost: float = 1.0, limit: int | None = None) -> RateLimitDecision:
+    def check(
+        self, identity: str, *, cost: float = 1.0, limit: int | None = None
+    ) -> RateLimitDecision:
         """Consume ``cost`` tokens for ``identity``.
 
         ``limit`` overrides the default, so a per-user quota stored on the user row can
@@ -173,9 +175,7 @@ class RateLimiter:
                 allowed = bool(int(result[0]))
                 remaining = float(result[1])
                 retry_after = float(result[2])
-                return RateLimitDecision(
-                    allowed, remaining, retry_after, effective_limit, "redis"
-                )
+                return RateLimitDecision(allowed, remaining, retry_after, effective_limit, "redis")
             except Exception as exc:  # noqa: BLE001 - any redis failure must fall back, not 500
                 # One failure flips to memory for the process lifetime rather than
                 # retrying Redis on every request while it is down.

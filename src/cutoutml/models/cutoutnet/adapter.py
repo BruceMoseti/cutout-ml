@@ -79,8 +79,7 @@ class CutoutNetAdapter(TorchSegmentationModel):
                 "input_size": self.input_size,
                 "architecture": f"CutoutNet-{self.variant}",
                 "notes": (
-                    meta.notes
-                    + " Original architecture; trained in-repo on the synthetic dataset."
+                    meta.notes + " Original architecture; trained in-repo on the synthetic dataset."
                 ).strip(),
             }
         )

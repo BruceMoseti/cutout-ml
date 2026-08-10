@@ -164,10 +164,13 @@ def _run_job(
                     to_batch_size=retry_kwargs["batch_size"],
                 )
             raise task.retry(
-                exc=exc, countdown=countdown, max_retries=MAX_RETRIES, kwargs={
+                exc=exc,
+                countdown=countdown,
+                max_retries=MAX_RETRIES,
+                kwargs={
                     "job_id": job_id,
                     **retry_kwargs,
-                }
+                },
             ) from exc
 
 

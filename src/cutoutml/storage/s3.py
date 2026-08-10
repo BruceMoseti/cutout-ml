@@ -50,9 +50,7 @@ class S3Storage(Storage):
             import boto3
             from botocore.config import Config
         except ImportError as exc:  # pragma: no cover - boto3 is in the api extra
-            raise RuntimeError(
-                "boto3 is required for S3Storage; install the 'api' extra"
-            ) from exc
+            raise RuntimeError("boto3 is required for S3Storage; install the 'api' extra") from exc
 
         self.bucket = bucket
         self.presign_expiry = presign_expiry
@@ -210,9 +208,7 @@ class S3Storage(Storage):
             headers["Content-Type"] = content_type
 
         expiry = expires_in or self.presign_expiry
-        url = self.client.generate_presigned_url(
-            "put_object", Params=params, ExpiresIn=expiry
-        )
+        url = self.client.generate_presigned_url("put_object", Params=params, ExpiresIn=expiry)
         return PresignedUpload(
             key=key,
             url=url,

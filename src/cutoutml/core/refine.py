@@ -256,7 +256,9 @@ def ema_smooth(previous: np.ndarray | None, current: np.ndarray, alpha: float = 
     if previous is None:
         return cur
     w = float(np.clip(alpha, 0.0, 1.0))
-    return np.asarray(w * cur + (1.0 - w) * np.asarray(previous, dtype=np.float32), dtype=np.float32)
+    return np.asarray(
+        w * cur + (1.0 - w) * np.asarray(previous, dtype=np.float32), dtype=np.float32
+    )
 
 
 def temporal_median(window: list[np.ndarray]) -> np.ndarray:

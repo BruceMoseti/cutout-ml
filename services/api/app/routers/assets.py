@@ -363,9 +363,7 @@ def list_assets(
     if kind:
         conditions.append(Asset.kind == kind)
 
-    total = session.execute(
-        select(func.count()).select_from(Asset).where(*conditions)
-    ).scalar_one()
+    total = session.execute(select(func.count()).select_from(Asset).where(*conditions)).scalar_one()
     rows = session.execute(
         select(Asset)
         .where(*conditions)
@@ -395,9 +393,7 @@ def get_asset_content(asset: OwnedAsset, storage: StorageDep) -> Response:
     a 302 to a short-lived presigned GET instead, which keeps the bytes off the API path.
     """
     if asset.status != AssetStatus.READY.value:
-        raise ApiError(
-            status.HTTP_409_CONFLICT, "asset_not_ready", f"asset is {asset.status}"
-        )
+        raise ApiError(status.HTTP_409_CONFLICT, "asset_not_ready", f"asset is {asset.status}")
     try:
         data = storage.get(asset.storage_key)
     except ObjectNotFoundError as exc:
@@ -409,9 +405,7 @@ def get_asset_content(asset: OwnedAsset, storage: StorageDep) -> Response:
     )
 
 
-@router.delete(
-    "/{asset_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete an asset"
-)
+@router.delete("/{asset_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete an asset")
 def delete_asset(asset: OwnedAsset, session: SessionDep, storage: StorageDep) -> Response:
     """Soft-delete the row and hard-delete the object.
 
@@ -604,7 +598,9 @@ def get_asset_result(
     return build_result_response(job, storage, settings)
 
 
-def build_result_response(job: InferenceJob, storage: StorageDep, settings: SettingsDep) -> ResultResponse:
+def build_result_response(
+    job: InferenceJob, storage: StorageDep, settings: SettingsDep
+) -> ResultResponse:
     """Turn a stored result manifest into a response with fetchable URLs."""
     manifest = job.result or {}
     outputs: list[ResultOutput] = []

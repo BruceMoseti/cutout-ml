@@ -199,9 +199,7 @@ def fetch(model: str, *, force: bool = False, timeout: float = 60.0) -> Path:
     try:
         source = SOURCES[model]
     except KeyError:
-        raise SystemExit(
-            f"unknown model {model!r}; known: {', '.join(sorted(SOURCES))}"
-        ) from None
+        raise SystemExit(f"unknown model {model!r}; known: {', '.join(sorted(SOURCES))}") from None
 
     target = source.target()
     print(f"model:    {source.model}")

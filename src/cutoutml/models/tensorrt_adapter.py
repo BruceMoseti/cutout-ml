@@ -238,9 +238,7 @@ class TensorRTAdapter(SegmentationModel):
 
         if not parser.parse(self.onnx_path.read_bytes()):
             errors = [str(parser.get_error(i)) for i in range(parser.num_errors)]
-            raise RuntimeError(
-                f"{TRT_UNAVAILABLE_MESSAGE}: ONNX parse failed: {'; '.join(errors)}"
-            )
+            raise RuntimeError(f"{TRT_UNAVAILABLE_MESSAGE}: ONNX parse failed: {'; '.join(errors)}")
 
         config = builder.create_builder_config()
         config.set_memory_pool_limit(
@@ -323,7 +321,11 @@ class TensorRTAdapter(SegmentationModel):
 
     def metadata(self) -> ModelMetadata:
         spec = self.spec
-        size = self.engine_path.stat().st_size if self.engine_path and self.engine_path.is_file() else 0
+        size = (
+            self.engine_path.stat().st_size
+            if self.engine_path and self.engine_path.is_file()
+            else 0
+        )
         return ModelMetadata(
             architecture=spec.architecture if spec else "tensorrt-engine",
             param_count=size // 4,

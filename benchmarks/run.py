@@ -108,12 +108,8 @@ def default_cases(
         # Batch scaling for the trained model: shows the throughput/latency trade-off
         # with real numbers instead of an assertion that batching helps.
         cases += [
-            BenchmarkCase(
-                model="cutoutnet", device="cpu", batch_size=4, label="cutoutnet-fp32-b4"
-            ),
-            BenchmarkCase(
-                model="cutoutnet", device="cpu", batch_size=8, label="cutoutnet-fp32-b8"
-            ),
+            BenchmarkCase(model="cutoutnet", device="cpu", batch_size=4, label="cutoutnet-fp32-b4"),
+            BenchmarkCase(model="cutoutnet", device="cpu", batch_size=8, label="cutoutnet-fp32-b8"),
             BenchmarkCase(
                 model="cutoutnet-onnx", device="cpu", batch_size=8, label="cutoutnet-onnx-b8"
             ),
@@ -122,7 +118,9 @@ def default_cases(
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     p.add_argument("--models", nargs="*", default=None, help="restrict to these model names")
     p.add_argument("--warmup", type=int, default=3)
     p.add_argument("--repetitions", type=int, default=20)
@@ -140,9 +138,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-refine", action="store_true", help="measure accuracy without refinement")
     p.add_argument("--output-dir", type=Path, default=None)
     p.add_argument("--dataset-root", type=Path, default=None, help="use a real dataset instead")
-    p.add_argument(
-        "--dataset-family", default=None, choices=["duts", "dis5k", "am2k", "flat"]
-    )
+    p.add_argument("--dataset-family", default=None, choices=["duts", "dis5k", "am2k", "flat"])
     p.add_argument("--dataset-split", default="test")
     p.add_argument("--log-format", default="console", choices=["console", "json"])
     return p
@@ -186,9 +182,7 @@ def main(argv: list[str] | None = None) -> int:
         dataset_description = dataset.describe()
         log.info("using_real_dataset", family=family, samples=len(dataset))
 
-    cases = default_cases(
-        include_batches=not args.no_batches, include_compile=not args.no_compile
-    )
+    cases = default_cases(include_batches=not args.no_batches, include_compile=not args.no_compile)
     if args.models:
         wanted = set(args.models)
         cases = [c for c in cases if c.model in wanted or (c.label or "") in wanted]
@@ -196,9 +190,7 @@ def main(argv: list[str] | None = None) -> int:
             log.error("no_matching_cases", requested=sorted(wanted))
             return 2
 
-    harness = BenchmarkHarness(
-        config, dataset=dataset, dataset_description=dataset_description
-    )
+    harness = BenchmarkHarness(config, dataset=dataset, dataset_description=dataset_description)
     log.info(
         "benchmark_start",
         cases=len(cases),
