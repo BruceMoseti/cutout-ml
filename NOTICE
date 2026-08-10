@@ -113,7 +113,8 @@ No third-party dataset is committed to or required by this repository.
 Every checkpoint that THIS repository trains - the CutoutNet tiny/small/base variants,
 plus u2net-lite and birefnet if you choose to train them - is trained from scratch on
 images synthesised procedurally by
-src/cutoutml/datasets/procedural.py from a single integer seed. No photographs, no
+src/cutoutml/datasets/synthetic.py, whose shape and background primitives live in
+procedural.py, from a single integer seed. No photographs, no
 scraped images, no third-party annotations, and no pretrained initialisation: no ImageNet
 backbone, no distillation, no fine-tuning of a downloaded checkpoint. Neither torchvision
 nor timm is a dependency. Those weights are MIT with no upstream.
