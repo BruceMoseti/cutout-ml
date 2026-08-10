@@ -103,3 +103,15 @@ behind every accuracy row. Where a digest is unchanged between runs, the IoU is
 identical to all printed digits; where it differs, the weights were retrained. Latency
 figures are not reproducible in that sense and are not claimed to be - each carries the
 machine load measured while it was taken.
+
+**One exception, and it is a real caveat on the table.** The `u2net.pt` and `u2netp.pt`
+digests in the current run (`46c41386...` and `8a1241a9...`) were produced by a converter
+that embedded a conversion timestamp in the checkpoint, so they identify a conversion rather
+than a set of weights. The timestamp now lives in `models/conversions/*.json` instead, and
+re-running `make weights-pretrained` today produces `26a059bb...` and `def963cd...` from the
+identical ONNX graphs - same `source_sha256`, same parity, same tensors, different file
+digest. So for those two rows only, a digest mismatch against a future run does *not* imply
+different weights; compare `source_sha256` in the conversion record instead. Every other row
+in the table is a checkpoint trained in-repo and is unaffected. The two figures will line up
+again the next time the suite is run on a quiet machine, which has not happened since the
+converter changed.
