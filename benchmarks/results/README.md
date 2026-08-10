@@ -97,12 +97,24 @@ python -m cutoutml.benchmarks.render_report benchmarks/results/<run-id>.json
 git diff --exit-code README.md docs/benchmarks.md   # no diff => the docs match the data
 ```
 
-Accuracy figures are reproducible bit-for-bit from a checkpoint digest: the
+Learned models' accuracy figures are reproducible bit-for-bit from a checkpoint digest: the
 `Checkpoint provenance` table in `docs/benchmarks.md` lists the SHA-256 of the weights
 behind every accuracy row. Where a digest is unchanged between runs, the IoU is
 identical to all printed digits; where it differs, the weights were retrained. Latency
 figures are not reproducible in that sense and are not claimed to be - each carries the
 machine load measured while it was taken.
+
+The two GrabCut rows (`classical-grabcut` and `classical-saliency+grabcut`) are outside that
+guarantee, which is worth knowing before you treat a difference as a regression. They have no
+checkpoint, and OpenCV's GrabCut seeds its colour model from a process-global RNG: six
+consecutive calls on one unchanged image return six different masks. Their IoU is therefore a
+function of how many GrabCut calls preceded the accuracy pass, and because each case is timed
+before it is scored, the repetition count reaches an accuracy number. Run the argument-free
+`cutoutml benchmark` and `classical-grabcut` reproduces its published 0.6614097183795684
+exactly; run it with `--repetitions 1` and it reproduces 0.6521175948596327 just as reliably.
+Every other row in the table is indifferent to the repetition count - `trivial-ones`,
+`trivial-center`, `classical-saliency`, `cutoutnet-fp32` and `u2net-pretrained` were each
+re-measured at both settings and returned their published IoU to ten decimal places.
 
 **One exception, and it is a real caveat on the table.** The `u2net.pt` and `u2netp.pt`
 digests in the current run (`46c41386...` and `8a1241a9...`) were produced by a converter

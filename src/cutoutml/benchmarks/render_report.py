@@ -151,9 +151,8 @@ def main_table(report: dict[str, Any]) -> str:
         rows.append("")
         rows.append(
             "`†` = measured while another workload held the CPU, so the figure is an upper "
-            "bound rather than this model's cost. Accuracy columns are unaffected: they are "
-            "deterministic in the weights and the eval set. See "
-            "[Machine contention](#machine-contention)."
+            "bound rather than this model's cost. Accuracy columns are unaffected: contention "
+            "costs time, not correctness. See [Machine contention](#machine-contention)."
         )
     return "\n".join(rows)
 
@@ -197,9 +196,11 @@ def contention_block(report: dict[str, Any]) -> str:
         "evidence attached rather than omitted, and marked `†` wherever they appear. Nothing "
         "here is corrected or extrapolated: a scaled-down number would be a guess.",
         "",
-        "Accuracy is unaffected and is not qualified. IoU, MAE, F-measure and boundary F1 are "
-        "deterministic functions of the weights and the eval set, and come out bit-identical "
-        "whatever else the scheduler was doing.",
+        "Accuracy is unaffected and is not qualified: contention costs time, not correctness, "
+        "so IoU, MAE, F-measure and boundary F1 come out the same whatever else the scheduler "
+        "was doing. What accuracy *is* sensitive to for the GrabCut rows is the repetition "
+        "count, which has nothing to do with load - see "
+        "[Accuracy metrics](#accuracy-metrics).",
         "",
         "| Case | External cores busy | Load avg (1m) | Latency trustworthy |",
         "|---|---|---|---|",
@@ -869,7 +870,7 @@ def readme_table(report: dict[str, Any]) -> str:
             f"{contended} of the timed cases ran, so those latency and throughput figures are "
             "upper bounds rather than this hardware's cost. They are published with the "
             "per-case load evidence rather than quietly cleaned up. **The accuracy columns "
-            "are unaffected** - they are deterministic in the weights and the eval set.",
+            "are unaffected** - contention costs time, not correctness.",
         ]
     rows += [
         "",
@@ -1083,6 +1084,23 @@ Two metrics deserve attention because they disagree usefully:
 - **IoU vs MAE.** IoU thresholds at 0.5 and is blind to how confident the model is.
   MAE uses the continuous alpha, so a model that produces correct-but-mushy soft edges
   is punished by MAE and not by IoU. For matting, MAE is the more honest number.
+
+Every learned row's accuracy is a deterministic function of the weights and the eval set:
+re-measuring `cutoutnet-fp32` or `u2net-pretrained` returns the IoU published here to ten
+decimal places, whatever else the machine was doing and whatever the timing settings were.
+
+**The two GrabCut rows are the exception, and it is worth knowing before you read a
+difference as a regression.** OpenCV's GrabCut seeds its colour model from a process-global
+RNG, so six consecutive calls on one unchanged image return six slightly different masks.
+Their IoU is therefore a function of how many GrabCut calls preceded the accuracy pass, and
+since each case is timed before it is scored, the repetition count reaches an accuracy
+number while looking purely like a latency knob. Run the argument-free `cutoutml benchmark`
+and `classical-grabcut` reproduces its published IoU exactly; run `--repetitions 1` and it
+reproduces a different value just as reliably (0.6521 against 0.6614). Both are stable, so
+neither looks like noise. No conclusion here rests on that digit - the point of the row is
+that the best non-learned baseline sits near 0.65 while a small trained network reaches
+0.85 - but it is the reason to reproduce accuracy with the committed configuration rather
+than with a convenient subset.
 
 ### Calibration references
 
