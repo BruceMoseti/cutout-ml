@@ -1,6 +1,6 @@
 # CutoutML
 
-[![CI](https://img.shields.io/badge/CI-GitHub_Actions-2088FF?logo=githubactions&logoColor=white)](.github/workflows/ci.yml)
+[![CI](https://github.com/BruceMoseti/cutout-ml/actions/workflows/ci.yml/badge.svg)](https://github.com/BruceMoseti/cutout-ml/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.12-3776ab?logo=python&logoColor=white)](pyproject.toml)
 [![PyTorch](https://img.shields.io/badge/PyTorch-%E2%89%A52.2_CPU_wheels-ee4c2c?logo=pytorch&logoColor=white)](pyproject.toml)
