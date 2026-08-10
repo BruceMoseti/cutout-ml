@@ -388,8 +388,12 @@ cutoutml doctor
 cutoutml models
 cutoutml segment photo.jpg -o out/ --outputs transparent_png mask_png
 cutoutml video clip.mp4 -o out.webm --mode transparent --container webm
-cutoutml benchmark --quick
+cutoutml benchmark --quick   # smoke run: 3 repetitions, 8 accuracy samples, not publishable
 ```
+
+`--quick` exists to prove the harness runs, not to produce numbers. It writes to the
+gitignored `benchmarks/results/quick/`, marks the report as a smoke run, and the renderer
+refuses to publish one — the tables in this README can only come from a full `make bench`.
 
 ## API
 
