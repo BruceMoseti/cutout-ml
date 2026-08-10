@@ -1,24 +1,20 @@
 """Shared fixtures.
 
-Two things are configured here *before* anything imports ``cutoutml``, because
-:func:`cutoutml.core.config.get_settings` is an ``lru_cache`` singleton and the first
-caller wins:
+Two rules this file exists to enforce:
 
-* a dedicated ``cutoutml_test`` database, so running the suite can never truncate the
-  development data;
-* a per-session temporary storage root, so no test writes into the repository's
-  ``storage/`` directory.
-
-Celery runs in eager mode with exceptions propagating, which is what lets the API tests
-exercise the *real* task body (and therefore the real pipeline, the real model and the
-real storage writes) without a broker or a worker process. The alternative - mocking
-``apply_async`` - would leave the most interesting half of the system untested.
+* **Unit tests touch nothing external.** Anything needing Postgres, Redis or ffmpeg is
+  marked ``integration`` and lives under ``tests/integration``, so ``pytest -m
+  "not integration"`` is a complete, fast, dependency-free suite.
+* **Integration tests skip rather than fail when a service is absent.** A developer
+  without Postgres running should see skips, not a wall of red that hides real
+  failures. CI sets the services up and additionally asserts that they were *not*
+  skipped (see ``.github/workflows/ci.yml``).
 """
 
 from __future__ import annotations
 
 import os
-import tempfile
+import shutil
 import uuid
 from collections.abc import Iterator
 from pathlib import Path
@@ -27,233 +23,175 @@ from typing import Any
 import numpy as np
 import pytest
 
-_TEST_DB = "postgresql+psycopg://dev:dev@127.0.0.1:5432/cutoutml_test"
-_ADMIN_DB = "postgresql+psycopg://dev:dev@127.0.0.1:5432/postgres"
-
-_STORAGE_ROOT = Path(tempfile.mkdtemp(prefix="cutoutml-tests-storage-"))
-
-os.environ.setdefault("CUTOUTML_ENVIRONMENT", "test")
-os.environ.setdefault("CUTOUTML_LOG_FORMAT", "console")
-os.environ.setdefault("CUTOUTML_LOG_LEVEL", "WARNING")
-os.environ.setdefault("CUTOUTML_DATABASE_URL", _TEST_DB)
-os.environ.setdefault("CUTOUTML_STORAGE_ROOT", str(_STORAGE_ROOT))
-os.environ.setdefault("CUTOUTML_STORAGE_BACKEND", "local")
-os.environ.setdefault("CUTOUTML_CELERY_TASK_ALWAYS_EAGER", "1")
-os.environ.setdefault("CUTOUTML_DEVICE", "cpu")
-# One thread. The suite runs many tiny forward passes and thread-pool spin-up dominates
-# them; it also keeps the timing-sensitive benchmark tests from fighting pytest-xdist.
-os.environ.setdefault("CUTOUTML_TORCH_NUM_THREADS", "1")
-# An unreachable Redis would make every rate-limited request wait on a connect timeout.
-# The limiter degrades to in-process buckets, which is what the API tests want anyway.
-os.environ.setdefault("CUTOUTML_REDIS_URL", "redis://127.0.0.1:6379/15")
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
-# --------------------------------------------------------------------- helpers
+# --------------------------------------------------------------------- test data
 
 
-def png_bytes(width: int = 96, height: int = 64, *, seed: int = 7) -> bytes:
-    """A small, genuinely decodable PNG with a bright blob on a dark field.
+@pytest.fixture
+def rng() -> np.random.Generator:
+    """A seeded generator. Never ``np.random`` directly: a flaky test is worse than none."""
+    return np.random.default_rng(20240817)
 
-    Deterministic so that content hashes - and therefore derived idempotency keys - are
-    stable across runs.
+
+@pytest.fixture
+def sample_image() -> np.ndarray:
+    """A 64x48 RGB image with a bright rectangle on a dark ground.
+
+    Deliberately not square and not a power of two: square test images hide axis-order
+    bugs, which are the single most common defect in this kind of code.
     """
+    image = np.zeros((48, 64, 3), dtype=np.uint8)
+    image[..., 2] = 40
+    image[12:36, 20:44] = (240, 220, 60)
+    return image
+
+
+@pytest.fixture
+def sample_alpha() -> np.ndarray:
+    """The exact matte for :func:`sample_image`'s rectangle."""
+    alpha = np.zeros((48, 64), dtype=np.float32)
+    alpha[12:36, 20:44] = 1.0
+    return alpha
+
+
+@pytest.fixture
+def png_bytes(sample_image: np.ndarray) -> bytes:
     from cutoutml.core.imaging import encode_image
 
-    rng = np.random.default_rng(seed)
-    image = (rng.integers(10, 45, size=(height, width, 3))).astype(np.uint8)
-    cy, cx = height // 2, width // 2
-    ry, rx = height // 4, width // 4
-    image[cy - ry : cy + ry, cx - rx : cx + rx] = (240, 210, 60)
-    return encode_image(image, "png")
+    return encode_image(sample_image, "png")
 
 
-@pytest.fixture(scope="session")
-def sample_png() -> bytes:
-    return png_bytes()
+# ------------------------------------------------------------------ environment
 
 
 @pytest.fixture
-def rgb_image() -> np.ndarray:
-    """A decoded ``(H, W, 3)`` uint8 RGB array."""
-    from cutoutml.core.imaging import decode_image
+def isolated_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Any]:
+    """Settings pointed at a temp storage root, with the singleton cache cleared.
 
-    return decode_image(png_bytes())
+    ``get_settings`` is ``lru_cache``d, so without clearing it here a test that changes
+    the environment would silently receive another test's configuration.
+    """
+    from cutoutml.core.config import Settings, get_settings
+
+    monkeypatch.setenv("CUTOUTML_STORAGE_ROOT", str(tmp_path / "storage"))
+    monkeypatch.setenv("CUTOUTML_ENVIRONMENT", "test")
+    monkeypatch.setenv("CUTOUTML_JWT_SECRET", "test-secret-not-a-real-one")
+    get_settings.cache_clear()
+    try:
+        yield Settings()
+    finally:
+        get_settings.cache_clear()
 
 
 @pytest.fixture
-def storage_root(tmp_path: Path) -> Path:
-    root = tmp_path / "storage"
-    root.mkdir()
-    return root
-
-
-@pytest.fixture
-def local_storage(storage_root: Path) -> Any:
+def local_storage(tmp_path: Path) -> Any:
     from cutoutml.storage.local import LocalStorage
 
-    return LocalStorage(storage_root)
+    return LocalStorage(root=tmp_path / "objects")
 
 
-# -------------------------------------------------------------------- database
+# ------------------------------------------------------- external-service gating
 
 
-def _postgres_available() -> bool:
-    try:
-        import sqlalchemy
-    except ImportError:  # pragma: no cover
-        return False
-    try:
-        engine = sqlalchemy.create_engine(_ADMIN_DB, isolation_level="AUTOCOMMIT")
-        with engine.connect():
-            pass
-    except Exception:  # noqa: BLE001 - probing a server that may be absent
-        return False
-    return True
-
-
-POSTGRES_AVAILABLE = _postgres_available()
-
-requires_postgres = pytest.mark.skipif(
-    not POSTGRES_AVAILABLE,
-    reason="needs a local Postgres reachable at dev:dev@127.0.0.1:5432",
-)
-
-
-@pytest.fixture(scope="session")
-def db_engine() -> Iterator[Any]:
-    """Create ``cutoutml_test``, build the schema, and hand back the engine.
-
-    The schema is created with ``Base.metadata.create_all`` rather than by running Alembic
-    so that a schema/model divergence shows up as a *test* failure in
-    ``tests/test_migrations.py`` (which does run Alembic) instead of silently making every
-    other test exercise the migration's idea of the schema.
-    """
-    if not POSTGRES_AVAILABLE:
-        pytest.skip("postgres unavailable")
-
-    import sqlalchemy
-    from sqlalchemy import text
-
-    admin = sqlalchemy.create_engine(_ADMIN_DB, isolation_level="AUTOCOMMIT")
-    with admin.connect() as conn:
-        exists = conn.execute(
-            text("SELECT 1 FROM pg_database WHERE datname = 'cutoutml_test'")
-        ).scalar()
-        if not exists:
-            conn.execute(text("CREATE DATABASE cutoutml_test"))
-    admin.dispose()
-
-    from cutoutml.db.models import Base
-    from cutoutml.db.session import get_engine, reset_caches
-
-    reset_caches()
-    engine = get_engine()
-    Base.metadata.create_all(engine)
-    yield engine
-    engine.dispose()
-    reset_caches()
-
-
-@pytest.fixture
-def clean_db(db_engine: Any) -> Iterator[Any]:
-    """Truncate every table before each test.
-
-    ``TRUNCATE ... CASCADE`` rather than ``DROP``/``CREATE``: it is an order of magnitude
-    faster and it keeps the indexes, so a test that depends on a unique constraint still
-    exercises it.
-    """
-    from sqlalchemy import text
-
-    with db_engine.begin() as conn:
-        conn.execute(
-            text(
-                "TRUNCATE users, assets, inference_jobs, inference_runs, benchmark_runs "
-                "RESTART IDENTITY CASCADE"
-            )
-        )
-    yield db_engine
-
-
-@pytest.fixture
-def db_session(clean_db: Any) -> Iterator[Any]:
-    from cutoutml.db.session import get_sessionmaker
-
-    session = get_sessionmaker()()
-    try:
-        yield session
-    finally:
-        session.rollback()
-        session.close()
-
-
-# ------------------------------------------------------------------------- api
-
-
-@pytest.fixture
-def settings() -> Any:
-    from cutoutml.core.config import get_settings
-
-    return get_settings()
-
-
-@pytest.fixture
-def app(clean_db: Any, storage_root: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
-    """A FastAPI app wired to the test database and a per-test storage root."""
-    from services.api.app.main import create_app
-
-    from cutoutml.core.config import get_settings
-    from cutoutml.storage.factory import reset_storage_cache
-
-    cfg = get_settings()
-    monkeypatch.setattr(cfg, "storage_root", storage_root, raising=False)
-    reset_storage_cache()
-    yield create_app(cfg)
-    reset_storage_cache()
-
-
-@pytest.fixture
-def client(app: Any) -> Iterator[Any]:
-    """A ``TestClient`` inside a lifespan context, so app state exists."""
-    from fastapi.testclient import TestClient
-
-    with TestClient(app, raise_server_exceptions=False) as test_client:
-        yield test_client
-
-
-@pytest.fixture
-def auth_client(client: Any) -> Any:
-    """A client with a registered user's bearer token already attached."""
-    email = f"user-{uuid.uuid4().hex[:12]}@example.test"
-    response = client.post(
-        "/v1/auth/register", json={"email": email, "password": "correct-horse-battery"}
+def _postgres_url() -> str:
+    return os.environ.get(
+        "CUTOUTML_TEST_DATABASE_URL",
+        os.environ.get(
+            "CUTOUTML_DATABASE_URL", "postgresql+psycopg://dev:dev@127.0.0.1:5432/cutoutml"
+        ),
     )
-    assert response.status_code == 201, response.text
-    token = response.json()["access_token"]
-    client.headers["Authorization"] = f"Bearer {token}"
-    client.email = email  # type: ignore[attr-defined]
-    return client
 
 
-# ----------------------------------------------------------------------- models
+def _redis_url() -> str:
+    return os.environ.get(
+        "CUTOUTML_TEST_REDIS_URL", os.environ.get("CUTOUTML_REDIS_URL", "redis://127.0.0.1:6379/15")
+    )
 
 
 @pytest.fixture(scope="session")
-def trivial_model() -> Any:
-    """A loaded, content-blind model.
+def postgres_url() -> str:
+    """URL of a reachable Postgres, or skip the test."""
+    url = _postgres_url()
+    try:
+        from sqlalchemy import create_engine, text
 
-    Used wherever a test needs *a* model but not a specific one - pipeline plumbing,
-    output encoding, batching. It has no weights and no compute cost, so it keeps those
-    tests measuring the thing they are about.
+        engine = create_engine(url, pool_pre_ping=True)
+        with engine.connect() as conn:
+            conn.execute(text("select 1"))
+        engine.dispose()
+    except Exception as exc:  # noqa: BLE001 - any connection problem means "skip"
+        pytest.skip(f"Postgres not reachable at {url}: {type(exc).__name__}: {exc}")
+    return url
+
+
+@pytest.fixture(scope="session")
+def redis_url() -> str:
+    """URL of a reachable Redis, or skip the test.
+
+    Defaults to database 15 so a test run cannot flush or collide with development data
+    sitting in database 0.
     """
-    from cutoutml.models.registry import get_model
+    url = _redis_url()
+    try:
+        import redis
 
-    return get_model("trivial-center", device="cpu")
+        redis.Redis.from_url(url, socket_connect_timeout=2).ping()
+    except Exception as exc:  # noqa: BLE001 - any connection problem means "skip"
+        pytest.skip(f"Redis not reachable at {url}: {type(exc).__name__}: {exc}")
+    return url
 
 
 @pytest.fixture(scope="session")
-def cutoutnet_available() -> bool:
-    from cutoutml.models.registry import resolve_spec, weights_available
+def ffmpeg_available() -> str:
+    path = shutil.which(os.environ.get("CUTOUTML_FFMPEG_BINARY", "ffmpeg"))
+    if path is None:
+        pytest.skip("ffmpeg is not installed")
+    return path
 
-    return weights_available(resolve_spec("cutoutnet"))
+
+@pytest.fixture(scope="session")
+def onnxruntime_available() -> Any:
+    return pytest.importorskip("onnxruntime", reason="onnxruntime is not installed")
+
+
+# ------------------------------------------------------------------ API fixtures
+
+
+@pytest.fixture
+def api_database(postgres_url: str) -> Iterator[str]:
+    """A migrated, disposable database for one test module.
+
+    A separate database per run rather than transactional rollback, because the API is
+    exercised through its real dependency graph (which commits) and through Celery in
+    eager mode (which uses its own session). Sharing a database with the developer's own
+    would mean tests deleting their assets.
+    """
+    from sqlalchemy import create_engine, text
+
+    name = f"cutoutml_test_{uuid.uuid4().hex[:12]}"
+    admin_url = postgres_url.rsplit("/", 1)[0] + "/postgres"
+    admin = create_engine(admin_url, isolation_level="AUTOCOMMIT")
+    with admin.connect() as conn:
+        conn.execute(text(f'CREATE DATABASE "{name}"'))
+
+    url = postgres_url.rsplit("/", 1)[0] + f"/{name}"
+    engine = create_engine(url)
+    from cutoutml.db.models import Base
+
+    Base.metadata.create_all(engine)
+    engine.dispose()
+    try:
+        yield url
+    finally:
+        with admin.connect() as conn:
+            conn.execute(
+                text(
+                    "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                    "WHERE datname = :n AND pid <> pg_backend_pid()"
+                ),
+                {"n": name},
+            )
+            conn.execute(text(f'DROP DATABASE IF EXISTS "{name}"'))
+        admin.dispose()

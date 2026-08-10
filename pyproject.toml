@@ -114,7 +114,8 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["ARG001", "ARG002", "N802"]
+# N803: test doubles for boto3 must mirror its PascalCase keyword arguments.
+"tests/**" = ["ARG001", "ARG002", "N802", "N803"]
 "benchmarks/*.py" = ["ARG001"]
 
 [tool.ruff.lint.isort]

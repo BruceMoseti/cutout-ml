@@ -11,7 +11,16 @@ from cutoutml.storage.s3 import S3Storage
 
 
 def build_storage(settings: Settings) -> Storage:
-    """Construct the storage backend named by ``settings.storage_backend``."""
+    """Construct the storage backend named by ``settings.storage_backend``.
+
+    Unknown names raise rather than defaulting to the local backend. The config
+    ``Literal`` already rejects a typo from the environment, so the only way to get
+    here is by adding a backend to that ``Literal`` and forgetting this function -
+    in which case a silent fallback would write a distributed deployment's results
+    to one node's disk, where they would appear to vanish.
+    """
+    if settings.storage_backend == "local":
+        return LocalStorage(settings.storage_root)
     if settings.storage_backend == "s3":
         return S3Storage(
             settings.s3_bucket,
@@ -22,7 +31,7 @@ def build_storage(settings: Settings) -> Storage:
             force_path_style=settings.s3_force_path_style,
             presign_expiry=settings.presign_expiry_seconds,
         )
-    return LocalStorage(settings.storage_root)
+    raise ValueError(f"unknown storage backend: {settings.storage_backend!r}")
 
 
 @functools.lru_cache(maxsize=1)
