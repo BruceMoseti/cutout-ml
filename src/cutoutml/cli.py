@@ -113,6 +113,24 @@ def cmd_segment(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------- video
 
 
+def _resolve_container(args: argparse.Namespace) -> str:
+    """Pick the output container: explicit flag, then the extension, then the mode.
+
+    Without the extension step, ``--mode transparent -o out.webm`` is rejected for asking
+    an mp4 to carry alpha - a flag default contradicting a filename the user actually
+    typed. The mode fallback covers an extensionless destination, where transparency is
+    only deliverable by an alpha-capable container.
+    """
+    from cutoutml.pipelines.ffmpeg import container_for_path
+
+    if args.container is not None:
+        return str(args.container)
+    inferred = container_for_path(args.output)
+    if inferred is not None:
+        return inferred
+    return "webm" if args.mode == "transparent" else "mp4"
+
+
 def cmd_video(args: argparse.Namespace) -> int:
     """Segment a video clip."""
     from cutoutml.core.imaging import decode_image
@@ -131,7 +149,7 @@ def cmd_video(args: argparse.Namespace) -> int:
     )
     request = VideoRequest(
         mode=args.mode,
-        container=args.container,
+        container=_resolve_container(args),
         background_color=tuple(args.background_color),  # type: ignore[arg-type]
         background_image=background,
         blur_background=args.blur_background,
@@ -319,7 +337,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_vid.add_argument(
         "--mode", default="composite", choices=["composite", "transparent", "frames", "mask"]
     )
-    p_vid.add_argument("--container", default="mp4", choices=["mp4", "webm", "mov", "qtrle"])
+    # No default: an unset container is inferred from the output extension, then the mode.
+    p_vid.add_argument("--container", default=None, choices=["mp4", "webm", "mov", "qtrle"])
     p_vid.add_argument(
         "--background-color", nargs=3, type=int, default=[0, 177, 64], metavar=("R", "G", "B")
     )

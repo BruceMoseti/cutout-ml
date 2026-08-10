@@ -28,6 +28,7 @@ from cutoutml.pipelines.ffmpeg import (
     alpha_decoder_args,
     alpha_roundtrip_works,
     container_extension,
+    container_for_path,
     container_supports_alpha,
     encoder_args,
     has_alpha,
@@ -445,6 +446,17 @@ def test_container_extension_maps_codec_names_to_real_muxers():
         container_extension("mkv")
 
 
+def test_the_container_can_be_inferred_from_a_destination_extension():
+    """So that `--mode transparent -o out.webm` is not rejected by a flag default that
+    contradicts the filename the caller typed."""
+    assert container_for_path("out.webm") == "webm"
+    assert container_for_path(Path("/tmp/a/b/out.MP4")) == "mp4"
+    # .mov is ambiguous between ProRes and QuickTime RLE; the better-supported one wins.
+    assert container_for_path("out.mov") == "mov"
+    assert container_for_path("out.mkv") is None
+    assert container_for_path("out") is None
+
+
 def test_container_supports_alpha_is_a_claim_about_the_format_only():
     assert container_supports_alpha("webm") is True
     assert container_supports_alpha("mov") is True
@@ -538,6 +550,33 @@ def test_frames_mode_writes_rgba_pngs_and_zips_them(video_pipeline, clip: Path, 
         # Flat archive: the server's temp path must not be reproduced inside it.
         assert [n for n in zf.namelist() if "/" in n] == []
         assert len(zf.namelist()) == 5
+
+
+@ffmpeg_required
+def test_frames_mode_accepts_a_zip_destination(video_pipeline, clip: Path, tmp_path: Path):
+    """`-o out.zip` is at least as natural a request as `-o out_frames/`, and deriving
+    the archive with `with_suffix('.zip')` used to hand back the frame directory itself,
+    which then failed to open as an archive."""
+    out = tmp_path / "sequence.zip"
+    result = video_pipeline.process(
+        clip, out, VideoRequest(mode="frames", max_frames=3, batch_size=2)
+    )
+
+    assert result.archive_path == out
+    assert result.deliverable == out
+    assert out.is_file()
+    assert result.output_path == tmp_path / "sequence"
+    assert all(p.parent == tmp_path / "sequence" for p in result.frame_paths)
+
+
+@ffmpeg_required
+def test_frames_mode_does_not_claim_a_container(video_pipeline, clip: Path, tmp_path: Path):
+    """A PNG sequence has no container, so reporting the request's unused default would
+    put "mp4" next to an RGBA zip in the job result."""
+    result = video_pipeline.process(
+        clip, tmp_path / "seq", VideoRequest(mode="frames", max_frames=2)
+    )
+    assert result.summary()["container"] == "png-sequence"
 
 
 @ffmpeg_required

@@ -470,6 +470,22 @@ def container_extension(container: str) -> str:
         ) from None
 
 
+def container_for_path(path: Path | str) -> str | None:
+    """The container implied by a destination's extension, or ``None`` if unrecognised.
+
+    Exists so that ``-o out.webm`` does not also require ``--container webm``. The
+    extension is the user's clearest statement of intent, and silently encoding VP9 into
+    a file called ``.mp4`` (or refusing a perfectly reasonable ``.webm`` because a flag
+    defaulted to mp4) is worse than either honouring it or saying nothing.
+
+    Ambiguity is resolved toward the container rather than the codec: ``.mov`` maps to
+    ``mov``/ProRes 4444 rather than ``qtrle``, because ProRes is the better-supported of
+    the two and a caller who wants QuickTime RLE can still ask for it explicitly.
+    """
+    suffix = Path(path).suffix.lower().lstrip(".")
+    return {"mp4": "mp4", "m4v": "mp4", "webm": "webm", "mov": "mov"}.get(suffix)
+
+
 def container_supports_alpha(container: str) -> bool:
     """Whether a container/codec pair is *specified* to carry transparency.
 

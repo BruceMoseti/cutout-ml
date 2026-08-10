@@ -262,13 +262,18 @@ class VideoPipeline:
     ) -> VideoResult:
         """Segment ``source`` and write the result to ``destination``.
 
-        For ``mode="frames"``, ``destination`` is treated as a directory.
+        For ``mode="frames"``, ``destination`` names either the directory to fill with
+        PNGs or the ``.zip`` to deliver; see :func:`_frame_destinations`.
         """
         req = request or VideoRequest()
         src = Path(source)
         dst = Path(destination)
         if not src.is_file():
             raise FileNotFoundError(f"video not found: {src}")
+
+        frame_dir, archive_target = (
+            _frame_destinations(dst) if req.mode == "frames" else (dst, None)
+        )
 
         info = probe(src, ffprobe=ffprobe)
         self._validate(req, info, ffmpeg)
@@ -286,7 +291,7 @@ class VideoPipeline:
         frame_paths: list[Path] = []
         frames_done = 0
 
-        writer_ctx = self._make_writer(dst, req, info, (out_w, out_h), src, ffmpeg)
+        writer_ctx = self._make_writer(frame_dir, req, info, (out_w, out_h), src, ffmpeg)
 
         with (
             FrameReader(
@@ -313,7 +318,7 @@ class VideoPipeline:
                         writer.write(self._render(frame, smoothed, req).tobytes())
                     else:
                         frame_paths.append(
-                            self._write_frame_file(dst, frames_done, frame, smoothed, req)
+                            self._write_frame_file(frame_dir, frames_done, frame, smoothed, req)
                         )
                     frames_done += 1
 
@@ -330,8 +335,8 @@ class VideoPipeline:
                     )
 
         archive: Path | None = None
-        if frame_paths and req.archive_frames:
-            archive = archive_frames(frame_paths, dst.with_suffix(".zip"))
+        if frame_paths and req.archive_frames and archive_target is not None:
+            archive = archive_frames(frame_paths, archive_target)
 
         elapsed = time.perf_counter() - started
         output_bytes = (
@@ -345,14 +350,16 @@ class VideoPipeline:
         )
 
         result = VideoResult(
-            output_path=dst,
+            output_path=frame_dir,
             frame_paths=frame_paths,
             info=info,
             frames_processed=frames_done,
             seconds=elapsed,
             fps=frames_done / max(elapsed, 1e-6),
             mode=req.mode,
-            container=req.container,
+            # A frame sequence has no container, and reporting the request's unused
+            # default ("mp4") next to an RGBA PNG zip reads as a contradiction.
+            container="png-sequence" if req.mode == "frames" else req.container,
             smoothing=req.smoothing,
             flicker_raw=estimate_flicker(alphas_raw) if req.measure_flicker else None,
             flicker_smoothed=estimate_flicker(alphas_out) if req.measure_flicker else None,
@@ -599,6 +606,20 @@ def make_test_video(
             frame[mask] = (250, 230, 40)
             writer.write(frame.tobytes())
     return out
+
+
+def _frame_destinations(destination: Path) -> tuple[Path, Path]:
+    """Split a frame-sequence destination into (directory to fill, zip to deliver).
+
+    Callers write ``-o out.zip`` at least as often as ``-o out_frames/``, and both have
+    to work. Deriving the zip with ``with_suffix(".zip")`` cannot: given ``out.zip`` it
+    returns the directory itself, and the archive then fails to open. So a ``.zip``
+    destination names the archive and the frames go to a sibling directory; anything
+    else names the directory and the archive sits beside it.
+    """
+    if destination.suffix.lower() == ".zip":
+        return destination.with_suffix(""), destination
+    return destination, destination.parent / f"{destination.name}.zip"
 
 
 def archive_frames(paths: Sequence[Path], destination: Path | str) -> Path:
