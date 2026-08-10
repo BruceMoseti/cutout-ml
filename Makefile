@@ -12,7 +12,8 @@ WEB    ?= apps/web
 
 .DEFAULT_GOAL := help
 .PHONY: help venv install install-web fmt lint typecheck test test-integration check \
-        train train-suite weights export-onnx eval-data bench bench-quick render-bench \
+        train train-suite weights weights-pretrained export-onnx eval-data bench bench-quick \
+        render-bench \
         migrate migrate-down api worker worker-gpu web doctor docker-build compose-up \
         compose-down compose-config clean
 
@@ -64,6 +65,14 @@ train-suite: ## Train every CPU-feasible architecture on one identical budget
 weights: ## Produce every checkpoint the committed benchmark suite needs
 	scripts/train_suite.sh cutoutnet-tiny cutoutnet-small cutoutnet-base u2net-lite
 	$(MAKE) export-onnx
+
+weights-pretrained: ## Fetch the published U^2-Net weights and convert them for PyTorch
+	$(PYTHON) -m cutoutml.models.download_weights --model u2netp-onnx
+	$(PYTHON) -m cutoutml.models.download_weights --model u2net-onnx
+	$(PYTHON) -m cutoutml.models.u2net.from_onnx \
+		--onnx models/u2net/u2netp.onnx --output models/u2net/u2netp.pt --variant lite
+	$(PYTHON) -m cutoutml.models.u2net.from_onnx \
+		--onnx models/u2net/u2net.onnx --output models/u2net/u2net.pt --variant full
 
 export-onnx: ## Export the default checkpoint to ONNX
 	$(PYTHON) -m cutoutml.cli export-onnx cutoutnet -o models/cutoutnet/cutoutnet-small.onnx

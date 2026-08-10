@@ -144,6 +144,12 @@ class ModelSpec:
     license: str
     source: str
     default_weights: str | None = None
+    #: Further paths this spec will load from, tried in order after ``default_weights``.
+    #: Exists because one architecture can have several equally legitimate artefacts -
+    #: U^2-Net accepts both the checkpoint converted from the redistributed ONNX graph
+    #: and the authors' own ``.pth`` - and a model should not report itself unavailable
+    #: because the weights present are the second kind.
+    alt_weights: tuple[str, ...] = ()
     weights_url: str | None = None
     runtime: str = "pytorch"
     supports_random_init: bool = False
@@ -156,6 +162,7 @@ class ModelSpec:
         d = dataclasses.asdict(self)
         d["input_size"] = list(self.input_size)
         d["tags"] = list(self.tags)
+        d["alt_weights"] = list(self.alt_weights)
         return d
 
 

@@ -8,9 +8,12 @@ Reachability is a genuine constraint, not a hypothetical. In the environment thi
 repository was built in, ``huggingface.co`` is blocked at the network layer, which is
 where the official U^2-Net and BiRefNet checkpoints are mirrored. So:
 
-* ``u2net`` / ``u2net-lite`` have real mirror URLs configured; the download works
-  wherever those hosts are reachable, and the SHA-256 of the canonical files is checked
-  when known.
+* ``u2net-onnx`` / ``u2netp-onnx`` fetch the authors' weights as an ONNX export from a
+  GitHub release, which is the one mirror reachable here, and their SHA-256 is pinned.
+  :mod:`cutoutml.models.u2net.from_onnx` turns either into a PyTorch checkpoint.
+* ``u2net`` / ``u2net-lite`` point at the authors' ``.pth`` files on HuggingFace. The
+  download works wherever that host is reachable; where it is not, the ONNX route above
+  produces an equivalent checkpoint.
 * ``birefnet`` has **no** URL, because the official BiRefNet weights target a Swin
   backbone whose tensor shapes do not match this repository's compact
   reimplementation. Downloading them would produce a checkpoint that cannot load, so
@@ -61,23 +64,46 @@ class WeightSource:
 
 
 SOURCES: dict[str, WeightSource] = {
+    "u2net-onnx": WeightSource(
+        model="u2net-onnx",
+        filename="u2net.onnx",
+        subdir="u2net",
+        license="Apache-2.0",
+        homepage="https://github.com/xuebinqin/U-2-Net",
+        # The only mirror of the authors' weights that is served over plain HTTPS from a
+        # host reachable here. It redistributes an ONNX export of u2net.pth rather than
+        # the checkpoint itself.
+        urls=("https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2net.onnx",),
+        sha256="8d10d2f3bb75ae3b6d527c77944fc5e7dcd94b29809d47a739a7a728a912b491",
+        note=(
+            "Runs directly under the `u2net-onnx` model. For the PyTorch `u2net` model, "
+            "convert it with `python -m cutoutml.models.u2net.from_onnx` (or just run "
+            "`make weights-pretrained`), which checks the result against onnxruntime."
+        ),
+    ),
+    "u2netp-onnx": WeightSource(
+        model="u2netp-onnx",
+        filename="u2netp.onnx",
+        subdir="u2net",
+        license="Apache-2.0",
+        homepage="https://github.com/xuebinqin/U-2-Net",
+        urls=("https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2netp.onnx",),
+        sha256="309c8469258dda742793dce0ebea8e6dd393174f89934733ecc8b14c76f4ddd8",
+        note="The 1.1M-parameter variant. Same conversion route as u2net-onnx.",
+    ),
     "u2net": WeightSource(
         model="u2net",
         filename="u2net.pth",
         subdir="u2net",
         license="Apache-2.0",
         homepage="https://github.com/xuebinqin/U-2-Net",
-        # The authors distribute via Google Drive; these are the commonly used
-        # redistribution mirrors. Both are unreachable from some CI networks, which is
-        # handled rather than assumed away.
-        urls=(
-            "https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2net.onnx",
-            "https://huggingface.co/tomjackson2023/rembg/resolve/main/u2net.pth",
-        ),
+        # The authors distribute via Google Drive. This is the commonly used
+        # redistribution mirror of the checkpoint itself.
+        urls=("https://huggingface.co/tomjackson2023/rembg/resolve/main/u2net.pth",),
         note=(
-            "The first mirror is an ONNX graph, not a .pth: use it with the OnnxAdapter "
-            "rather than U2NetAdapter. The .pth mirror is on HuggingFace and is blocked "
-            "in some environments."
+            "This is the authors' .pth. huggingface.co is blocked in some environments, "
+            "including the one this repository was developed in - use `u2net-onnx` plus "
+            "`make weights-pretrained` there, which produces an equivalent checkpoint."
         ),
     ),
     "u2net-lite": WeightSource(

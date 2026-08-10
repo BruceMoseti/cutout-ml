@@ -82,22 +82,29 @@ def _import_adapter(dotted: str) -> type[SegmentationModel]:
     return cls  # type: ignore[no-any-return]
 
 
+def _weights_candidates(spec: ModelSpec) -> list[Path]:
+    """``default_weights`` then ``alt_weights``, each made absolute."""
+    root = get_settings().model_weights_dir
+    names = [spec.default_weights, *spec.alt_weights] if spec.default_weights else []
+    return [p if (p := Path(name)).is_absolute() else root / p for name in names if name]
+
+
 def _resolve_weights(spec: ModelSpec) -> Path | None:
-    """Turn a spec's relative ``default_weights`` into an absolute path if present."""
-    if not spec.default_weights:
+    """The checkpoint this spec should load: the first that exists, else the primary.
+
+    Falling back to the primary rather than to ``None`` keeps the error message useful:
+    a model with no weights on disk should name the path it wanted, not report that it
+    has no configured weights at all.
+    """
+    candidates = _weights_candidates(spec)
+    if not candidates:
         return None
-    candidate = Path(spec.default_weights)
-    if not candidate.is_absolute():
-        candidate = get_settings().model_weights_dir / candidate
-    return candidate
+    return next((path for path in candidates if path.is_file()), candidates[0])
 
 
 def _artifact_candidates(spec: ModelSpec) -> list[Path]:
     """Every on-disk artefact a spec could load from."""
-    candidates: list[Path] = []
-    resolved = _resolve_weights(spec)
-    if resolved is not None:
-        candidates.append(resolved)
+    candidates: list[Path] = _weights_candidates(spec)
     for key in ("onnx_path", "engine_path"):
         raw = spec.options.get(key)
         if not raw:
@@ -290,16 +297,93 @@ register(
         input_size=(320, 320),
         license="Apache-2.0 (upstream architecture and published weights)",
         source="https://github.com/xuebinqin/U-2-Net",
-        default_weights="u2net/u2net.pth",
+        default_weights="u2net/u2net.pt",
+        alt_weights=("u2net/u2net.pth",),
         weights_url=None,
         supports_random_init=True,
         description=(
-            "44M-parameter nested U-structure. Independent implementation, "
-            "shape-compatible with official u2net.pth (keys are remapped on load). "
-            "Weights are not bundled."
+            "44M-parameter nested U-structure, the authors' published weights. "
+            "Independent implementation, shape-compatible with the official "
+            "checkpoint. Loads either u2net.pt (converted from the redistributed "
+            "ONNX graph by cutoutml.models.u2net.from_onnx) or the authors' "
+            "u2net.pth, whose keys are remapped on load. Not bundled: run "
+            "`make weights-pretrained`."
         ),
-        tags=("high-accuracy", "needs-weights"),
+        tags=("high-accuracy", "needs-weights", "pretrained"),
         options={"variant": "full"},
+    )
+)
+
+register(
+    ModelSpec(
+        name="u2netp",
+        adapter="cutoutml.models.u2net.adapter.U2NetAdapter",
+        architecture="U2Net-lite",
+        input_size=(320, 320),
+        license="Apache-2.0 (upstream architecture and published weights)",
+        source="https://github.com/xuebinqin/U-2-Net",
+        default_weights="u2net/u2netp.pt",
+        alt_weights=("u2net/u2netp.pth",),
+        supports_random_init=True,
+        description=(
+            "U^2-Net-P, the authors' 1.1M-parameter variant, with their published "
+            "weights. 40x smaller than u2net at the same topology, which makes the "
+            "pair a capacity comparison on identical training data - the one thing "
+            "the in-repo models cannot provide."
+        ),
+        tags=("fast", "needs-weights", "pretrained"),
+        options={"variant": "lite"},
+    )
+)
+
+register(
+    ModelSpec(
+        name="u2net-onnx",
+        adapter="cutoutml.models.onnx_adapter.OnnxAdapter",
+        architecture="U2Net-full (ONNX)",
+        input_size=(320, 320),
+        license="Apache-2.0 (upstream architecture and published weights)",
+        source="https://github.com/xuebinqin/U-2-Net",
+        default_weights="u2net/u2net.onnx",
+        runtime="onnxruntime",
+        requires_weights=False,
+        description=(
+            "The published U^2-Net weights executed by onnxruntime. Identical "
+            "numerics to the `u2net` PyTorch row - parity is verified to 1.4e-7 - so "
+            "the two differ only by runtime, which is what makes the comparison mean "
+            "anything."
+        ),
+        tags=("onnx", "high-accuracy", "pretrained"),
+        options={
+            "onnx_path": "models/u2net/u2net.onnx",
+            "normalization": ((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
+            # This export bakes in the sigmoid and fixes its batch axis at 1; both are
+            # properties of the artefact that the adapter cannot infer safely.
+            "output_activation": "sigmoid",
+            "intensity_scaling": "max",
+        },
+    )
+)
+
+register(
+    ModelSpec(
+        name="u2netp-onnx",
+        adapter="cutoutml.models.onnx_adapter.OnnxAdapter",
+        architecture="U2Net-lite (ONNX)",
+        input_size=(320, 320),
+        license="Apache-2.0 (upstream architecture and published weights)",
+        source="https://github.com/xuebinqin/U-2-Net",
+        default_weights="u2net/u2netp.onnx",
+        runtime="onnxruntime",
+        requires_weights=False,
+        description="The published U^2-Net-P weights executed by onnxruntime.",
+        tags=("onnx", "fast", "pretrained"),
+        options={
+            "onnx_path": "models/u2net/u2netp.onnx",
+            "normalization": ((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
+            "output_activation": "sigmoid",
+            "intensity_scaling": "max",
+        },
     )
 )
 
