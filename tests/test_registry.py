@@ -325,19 +325,31 @@ def test_random_init_is_allowed_for_specs_that_declare_it_and_is_flagged():
     assert "RANDOM WEIGHTS" in meta.notes
 
 
-@pytest.mark.skipif(
-    weights_available(resolve_spec("u2net")),
-    reason="u2net weights are present, so the missing-weights path cannot be exercised",
-)
-def test_a_missing_checkpoint_raises_an_error_naming_the_path_and_the_way_out():
-    """This is the normal condition for u2net and birefnet here: their published
-    weights live on HuggingFace, which is unreachable in this environment. The
-    error has to say where the file was expected and what to do instead."""
-    with pytest.raises(WeightsUnavailableError) as excinfo:
-        get_model("u2net")
-    message = str(excinfo.value)
-    assert "u2net.pth" in message
-    assert "train" in message.lower()
+def test_a_missing_checkpoint_raises_an_error_naming_the_path_and_the_way_out(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    """This is the normal condition for u2net and birefnet: their published weights
+    live on HuggingFace, which is unreachable in this environment. The error has to
+    say where the file was expected and what to do instead.
+
+    The weights directory is redirected at an empty one rather than the test skipping
+    when u2net happens to be on disk. A `skipif` on the real directory made this case
+    disappear on exactly the machines that had done a download — so whether the message
+    a first-time user hits was tested at all depended on the state of a cache, and the
+    run that skipped it reported green.
+    """
+    from cutoutml.core.config import get_settings
+
+    monkeypatch.setenv("CUTOUTML_MODEL_WEIGHTS_DIR", str(tmp_path / "empty"))
+    get_settings.cache_clear()
+    try:
+        with pytest.raises(WeightsUnavailableError) as excinfo:
+            get_model("u2net")
+        message = str(excinfo.value)
+        assert "u2net.pth" in message
+        assert "train" in message.lower()
+    finally:
+        get_settings.cache_clear()
 
 
 def test_the_missing_weights_error_points_at_training_for_in_repo_architectures(temp_spec):
