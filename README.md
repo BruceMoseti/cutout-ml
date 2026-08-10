@@ -314,7 +314,7 @@ measured" enforceable.
 
 Also: [architecture](docs/architecture.md) · [data model](docs/data-model.md) ·
 [API](docs/api.md) · [benchmarks](docs/benchmarks.md) · [security](docs/security.md) ·
-[models and licences](docs/models.md)
+[models and attribution](docs/models.md) · [licensing](docs/licensing.md)
 
 ## Roadmap
 
@@ -338,7 +338,13 @@ Ordered by what I would do next, not by ambition:
 
 ## Licence
 
-MIT — see [LICENSE](LICENSE). Model architectures are attributed individually in
-[docs/models.md](docs/models.md); U²-Net is Apache-2.0 upstream, and some third-party
-BiRefNet checkpoints are non-commercial, so check before using any weights you did not
-train.
+MIT — see [LICENSE](LICENSE). Every checkpoint in this repository was trained here on data
+generated here, with no pretrained initialisation anywhere, so the weights are MIT too —
+which is the part most background removers cannot say, because a research-use dataset
+carries its restriction into whatever is trained on it.
+
+Model architectures are attributed individually in [docs/models.md](docs/models.md), and
+the full analysis — including the one LGPL dependency and why ffmpeg's GPL does not
+propagate — is in [docs/licensing.md](docs/licensing.md). U²-Net is Apache-2.0 upstream,
+and some third-party BiRefNet checkpoints are non-commercial, so check before using any
+weights you did not train.
