@@ -28,7 +28,6 @@ import pytest
 import torch
 
 from cutoutml.core.imaging import LetterboxInfo
-from cutoutml.models import registry
 from cutoutml.models.base import (
     ModelMetadata,
     ModelSpec,
@@ -196,7 +195,18 @@ def test_catalogue_is_json_serialisable_and_carries_availability():
 
 def test_catalogue_availability_is_recomputed_per_call(tmp_path, temp_spec, monkeypatch):
     """A checkpoint appearing in models/ (a finished training run, a mounted volume)
-    must show up without restarting the API."""
+    must show up without restarting the API.
+
+    The weights directory is redirected rather than any lookup helper monkeypatched: the
+    spec's path is relative, so this exercises whatever resolution order the registry
+    actually implements instead of asserting against one private function that a refactor
+    is free to move the work out of.
+    """
+    from cutoutml.core.config import get_settings
+
+    monkeypatch.setenv("CUTOUTML_MODEL_WEIGHTS_DIR", str(tmp_path))
+    get_settings.cache_clear()
+
     temp_spec(
         name="appears-later",
         adapter="cutoutml.models.cutoutnet.adapter.CutoutNetAdapter",
@@ -204,15 +214,17 @@ def test_catalogue_availability_is_recomputed_per_call(tmp_path, temp_spec, monk
         default_weights="appears-later.pt",
         options={"variant": "tiny"},
     )
-    monkeypatch.setattr(registry, "_resolve_weights", lambda _: tmp_path / "appears-later.pt")
 
     def availability() -> bool:
         entry = next(e for e in catalogue() if e["name"] == "appears-later")
         return bool(entry["weights_available"])
 
-    assert availability() is False
-    (tmp_path / "appears-later.pt").write_bytes(b"checkpoint")
-    assert availability() is True
+    try:
+        assert availability() is False
+        (tmp_path / "appears-later.pt").write_bytes(b"checkpoint")
+        assert availability() is True
+    finally:
+        get_settings.cache_clear()
 
 
 # ------------------------------------------------------------------- get_model
