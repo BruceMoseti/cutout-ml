@@ -7,11 +7,17 @@ Status: Accepted
 Training needs PyTorch. Serving does not necessarily, and there are three costs to
 serving from PyTorch that are worth trying to avoid:
 
-- **Image size and cold start.** `torch` with CUDA is roughly 2.5 GB of wheels. A container
-  built on it takes minutes to pull on a cold node. `onnxruntime` is about 50 MB, and its
-  GPU build is far smaller than the full CUDA PyTorch stack. On anything that scales from
-  zero — a serverless GPU, a spot worker replacing a reclaimed one — that difference is the
-  dominant term in time-to-first-inference.
+- **Image size and cold start.** `pip install torch` on Linux/x86-64 resolves to 2.7 GB of
+  wheels — `torch` 2.13.0 is 527 MB and the CUDA stack it depends on (cuBLAS, cuDNN, cuFFT,
+  NCCL, cuSOLVER, Triton and the rest) is the other 2.2 GB. A container built on it takes
+  minutes to pull on a cold node. The `onnxruntime` 1.28.0 CPU wheel is 19 MB, and
+  `onnxruntime-gpu` is 250 MB — an order of magnitude less than the CUDA PyTorch stack. On
+  anything that scales from zero — a serverless GPU, a spot worker replacing a reclaimed
+  one — that difference is the dominant term in time-to-first-inference.
+
+  (Sizes are wheel download sizes for CPython 3.12 on `manylinux` x86-64, taken from the
+  resolution `pip install --dry-run --report` produces against PyPI. They move with every
+  release; the ratio is the durable part.)
 - **Graph-level optimisation left on the table.** Eager PyTorch executes operator by
   operator. An ahead-of-time graph compiler can fuse Conv+BN+ReLU, fold constants, and
   choose memory layouts across the whole network. On CPU this is usually a real speedup; on
@@ -63,7 +69,7 @@ for TensorRT — closing that door for simplicity is expensive later. It remains
 
 **`torch.compile` instead of ONNX.** Also implemented, also benchmarked, and it addresses
 a different problem. `torch.compile` gives graph-level optimisation *inside* PyTorch — so
-it keeps the 2.5 GB dependency and the multi-second warm compile, and it does not help
+it keeps the 2.7 GB dependency and the multi-second warm compile, and it does not help
 cold start or portability. It is the right tool when PyTorch must be in the image anyway;
 it is not a substitute for an exportable graph. Having both as benchmark rows is more
 useful than choosing between them on principle, which is why the suite runs

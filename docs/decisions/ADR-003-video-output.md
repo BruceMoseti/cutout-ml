@@ -81,8 +81,8 @@ handful of encoder flags that actually matter for alpha (`-pix_fmt yuva420p`,
 `-auto-alt-ref 0`), and ffmpeg is already present in any image that can process video.
 The subprocess approach also makes streaming discipline explicit — frames enter in
 batches and leave immediately, so peak memory is `O(batch_size)` rather than
-`O(frame_count)`. A 60-second 4K clip is roughly 1.5 GB of raw RGB; holding it would be a
-bug, not an inefficiency.
+`O(frame_count)`. One 4K RGB frame is 24 MB, so a 60-second clip at 30 fps is roughly
+45 GB decoded; holding it would be a bug, not an inefficiency.
 
 **Write alpha as a second video track.** Rejected: nothing consumes it without a manual
 ffmpeg invocation, which is a worse experience than a zip of PNGs.

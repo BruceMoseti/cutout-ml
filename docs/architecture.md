@@ -147,7 +147,8 @@ reusable from a script.
 serves CutoutNet, an ONNX graph and GrabCut. Adding a model does not touch a pipeline.
 
 **Refinement happens at full resolution.** The model runs at its letterboxed input size
-(256×256 or 320×320); the alpha map is un-letterboxed to the original dimensions *before*
+(256×256, 320×320 or 512×512, depending on the spec); the alpha map is un-letterboxed to
+the original dimensions *before*
 guided-filter refinement. Refining the small mask and then upsampling reintroduces exactly
 the stair-stepping the filter exists to remove.
 
