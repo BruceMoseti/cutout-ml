@@ -57,31 +57,31 @@ table and exactly what was and was not measured.
 <!-- BENCHMARKS:BEGIN -->
 | Model | Runtime | IoU | MAE | p50 latency | Throughput | Size |
 |---|---|---|---|---|---|---|
-| **trivial-ones** | numpy | 0.3590 | 0.6410 | 0.1 ms † | 8762.4 img/s | n/a |
-| **trivial-center** | numpy | 0.4382 | 0.2644 | 0.5 ms † | 802.3 img/s | n/a |
-| **classical-saliency** | opencv+numpy | 0.1508 | 0.3772 | 0.9 ms † | 930.8 img/s | n/a |
-| **classical** | opencv+numpy | 0.6614 | 0.1455 | 280.0 ms † | 3.5 img/s | n/a |
-| **classical-saliency-grabcut** | opencv+numpy | 0.1570 | 0.3693 | 426.7 ms † | 2.3 img/s | n/a |
-| **cutoutnet-tiny** | pytorch-eager | 0.8241 | 0.0693 | 11.3 ms † | 83.9 img/s | 0.5 MiB |
-| **cutoutnet** | pytorch-eager | 0.8544 | 0.0573 | 35.6 ms † | 24.9 img/s | 4.5 MiB |
-| **cutoutnet-base** | pytorch-eager | 0.8549 | 0.0589 | 57.2 ms † | 16.2 img/s | 16.8 MiB |
-| **cutoutnet-onnx ONNX/CPU** | onnxruntime:CPUExecutionProvider | 0.8544 | 0.0573 | 16.4 ms † | 54.3 img/s | 4.4 MiB |
-| **u2netp** | pytorch-eager | 0.6380 | 0.1388 | 300.6 ms † | 3.3 img/s | 4.6 MiB |
-| **u2netp-onnx ONNX/CPU** | onnxruntime:CPUExecutionProvider | 0.6380 | 0.1388 | 253.2 ms † | 3.9 img/s | 4.4 MiB |
-| **u2net** | pytorch-eager | 0.6974 | 0.1221 | 651.0 ms † | 1.5 img/s | 168.2 MiB |
-| **u2net-onnx ONNX/CPU** | onnxruntime:CPUExecutionProvider | 0.6974 | 0.1221 | 621.7 ms † | 1.6 img/s | 167.8 MiB |
-| **birefnet random-init** | pytorch-eager | n/a * | n/a * | 229.0 ms † | 4.3 img/s | 11.8 MiB |
-| **cutoutnet compiled** | pytorch-compile:inductor:default | 0.8544 | 0.0573 | 18.9 ms † | 52.9 img/s | 4.5 MiB |
+| **trivial-ones** | numpy | 0.3590 | 0.6410 | 0.1 ms | 8532.3 img/s | n/a |
+| **trivial-center** | numpy | 0.4382 | 0.2644 | 0.5 ms | 1861.2 img/s | n/a |
+| **classical-saliency** | opencv+numpy | 0.1508 | 0.3772 | 0.8 ms | 1171.7 img/s | n/a |
+| **classical** | opencv+numpy | 0.6614 | 0.1455 | 263.0 ms | 3.8 img/s | n/a |
+| **classical-saliency-grabcut** | opencv+numpy | 0.1570 | 0.3693 | 395.5 ms | 2.6 img/s | n/a |
+| **cutoutnet-tiny** | pytorch-eager | 0.8241 | 0.0693 | 9.7 ms | 102.1 img/s | 0.5 MiB |
+| **cutoutnet** | pytorch-eager | 0.8544 | 0.0573 | 30.7 ms | 32.5 img/s | 4.5 MiB |
+| **cutoutnet-base** | pytorch-eager | 0.8595 | 0.0549 | 39.5 ms | 25.3 img/s | 16.8 MiB |
+| **cutoutnet-onnx ONNX/CPU** | onnxruntime:CPUExecutionProvider | 0.8544 | 0.0573 | 16.3 ms | 61.3 img/s | 4.4 MiB |
+| **u2netp** | pytorch-eager | 0.6380 | 0.1388 | 315.0 ms | 3.2 img/s | 4.6 MiB |
+| **u2netp-onnx ONNX/CPU** | onnxruntime:CPUExecutionProvider | 0.6380 | 0.1388 | 248.6 ms † | 4.0 img/s | 4.4 MiB |
+| **u2net** | pytorch-eager | 0.6974 | 0.1221 | 610.9 ms † | 1.6 img/s | 168.2 MiB |
+| **u2net-onnx ONNX/CPU** | onnxruntime:CPUExecutionProvider | 0.6974 | 0.1221 | 592.9 ms | 1.7 img/s | 167.8 MiB |
+| **birefnet random-init** | pytorch-eager | n/a * | n/a * | 208.7 ms † | 4.8 img/s | 11.8 MiB |
+| **cutoutnet compiled** | pytorch-compile:inductor:default | 0.8544 | 0.0573 | 19.1 ms † | 52.3 img/s | 4.5 MiB |
 
 **Benchmark environment**: Intel(R) Xeon(R) Processor, 8 vCPU (8 physical cores), 47 GB RAM, no GPU (CPU-only). GPU: **none**. Every number above was measured by `benchmarks/run.py` on this machine - none are copied from a paper or estimated.
 
-**Latency is single-threaded**, so these are per-core costs and a dedicated machine would beat them. That is deliberate: this box runs other tenants, and multi-threaded timings on it are dominated by barrier waits rather than by the model - the same weights measured 20.5 ms on 1 thread and 2202.3 ms on 8. The measured curve, and the reasoning, are in [docs/benchmarks.md](docs/benchmarks.md#thread-scaling).
+**Latency is single-threaded**, so these are per-core costs and a dedicated machine would beat them. That is deliberate: this box runs other tenants, and multi-threaded timings on it are dominated by barrier waits rather than by the model. The measured curve, and the reasoning, are in [docs/benchmarks.md](docs/benchmarks.md#thread-scaling).
 
 `n/a *` = the network ran with **random weights** (no checkpoint exists that this architecture can load), so its latency is real but accuracy is not measurable.
 
-`†` = **measured under CPU contention.** A concurrent workload was using up to 8.0 of this machine's 8 cores while 27 of the timed cases ran, so those latency and throughput figures are upper bounds rather than this hardware's cost. They are published with the per-case load evidence rather than quietly cleaned up. **The accuracy columns are unaffected** - they are deterministic in the weights and the eval set.
+`†` = **measured under CPU contention.** A concurrent workload was using up to 1.9 of this machine's 8 cores while 8 of the timed cases ran, so those latency and throughput figures are upper bounds rather than this hardware's cost. They are published with the per-case load evidence rather than quietly cleaned up. **The accuracy columns are unaffected** - they are deterministic in the weights and the eval set.
 
-Source data: [`benchmarks/results/20260810T050712Z-6314f8b1.json`](benchmarks/results/20260810T050712Z-6314f8b1.json) - regenerate with `make bench`. Full methodology and the per-case load table: [docs/benchmarks.md](docs/benchmarks.md).
+Source data: [`benchmarks/results/20260810T054025Z-1385dc69.json`](benchmarks/results/20260810T054025Z-1385dc69.json) - regenerate with `make bench`. Full methodology and the per-case load table: [docs/benchmarks.md](docs/benchmarks.md).
 <!-- BENCHMARKS:END -->
 
 Methodology, the full metric set, the per-stage timing breakdown and the reasons the
