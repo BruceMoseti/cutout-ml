@@ -427,11 +427,11 @@ Ordered by what I would do next, not by ambition:
 1. **Measure a GPU.** Every fp16, `torch.compile`-on-CUDA and TensorRT code path is
    implemented and type-checked but unmeasured. The rows are absent, and they should be
    real.
-2. **Re-measure on a quiet, dedicated machine.** Almost every latency row here is marked
-   `†`, and the suite is single-threaded because that is the only figure this box can
-   produce twice. A dedicated machine would give both a trustworthy multi-threaded number
-   and a thread-scaling curve that reflects the runtimes rather than the scheduler. The
-   harness already records everything needed to tell the two runs apart.
+2. **Re-measure on a dedicated machine.** Eight of twenty-seven latency rows are still
+   marked `†`, and the suite is single-threaded throughout because that is the only figure
+   a shared box can produce twice. A dedicated machine would give a trustworthy
+   multi-threaded number and a thread-scaling curve that reflects the runtimes rather than
+   the scheduler. The harness already records everything needed to tell the two runs apart.
 3. **Evaluate on DUTS and DIS5K.** `RealSegmentationDataset` already handles both; what is
    missing is a run on hardware that can reach them, which would make the accuracy column
    comparable to published work.
