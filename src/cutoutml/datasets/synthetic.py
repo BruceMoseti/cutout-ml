@@ -69,10 +69,11 @@ class SyntheticConfig:
     contrast_jitter: float = 0.25
     rotation_degrees: float = 30.0
     scale_range: tuple[float, float] = (0.62, 1.18)
-    # Objects are translated by up to +-27% of the frame. Deliberately large: with
-    # a tighter range a centred ellipse alone scores IoU ~0.51 and GrabCut seeded
-    # from a centred rectangle scores ~0.76, so the benchmark would mostly be
-    # measuring how well a model has learned a centre prior.
+    # Objects are translated by up to +-27% of the frame. Deliberately large: centring
+    # every object instead lifts a fixed centred ellipse from 0.4382 to 0.5948 IoU and
+    # GrabCut seeded from a centred rectangle from 0.6493 to 0.8306, so a tighter range
+    # would mostly measure how well a model has learned a centre prior. Measured by
+    # benchmarks/center_prior.py; see benchmarks/results/experiments/center-prior-*.json.
     translation_frac: float = 0.27
     color_collision_prob: float = 0.3
     min_alpha_coverage: float = 0.03

@@ -42,9 +42,14 @@ The generator is designed to be *hard in the ways that matter*, not merely to ex
 3. **Colour collisions.** With probability 0.3 the foreground colour is pulled toward the
    background's mean, so colour alone cannot separate them.
 4. **Large translation.** Objects move by up to ±27% of the frame. This is deliberately
-   wide: with a tighter range, a fixed centred ellipse alone scores around 0.51 IoU and
-   GrabCut from a centred rectangle around 0.76, so the benchmark would mostly be
-   measuring how well each model has memorised a centre prior.
+   wide, and the cost of narrowing it is measured rather than asserted:
+   `benchmarks/center_prior.py` re-generates the eval split at six translation ranges and
+   scores the learning-free baselines on each. Centring every object lifts a fixed centred
+   ellipse from 0.4382 to 0.5948 IoU and GrabCut seeded from a centred rectangle from
+   0.6493 to 0.8306, while `trivial-ones` — which cannot benefit from a centre prior —
+   moves the other way, 0.3590 to 0.3397. With a tighter range the benchmark would
+   therefore be measuring how well each model has memorised a centre prior. The sweep is
+   committed under `benchmarks/results/experiments/center-prior-*.json`.
 5. **Photographic degradation.** Brightness/contrast jitter, blur, JPEG re-encode and
    noise. Blur is applied to the composite *and* the alpha together, because a blurred
    photograph genuinely has a blurred matte.
@@ -68,9 +73,10 @@ fails CI, because the alternative is an accuracy column that drifts silently.
 
 **Calibration rows are mandatory.** The benchmark table always includes `trivial-ones`
 (predict foreground everywhere) and `trivial-center` (a fixed ellipse, ignoring the
-image). IoU is only interpretable against what predicting *nothing* achieves: on a set
-where foreground covers about a third of the frame, "predict everything" already scores
-about 0.33 IoU. Any model that does not clearly beat those rows has learned nothing.
+image). IoU is only interpretable against what predicting *nothing* achieves: on the
+shipped eval split the foreground covers 35.9% of the frame, so "predict everything"
+already scores 0.3590 IoU. Any model that does not clearly beat those rows has learned
+nothing.
 
 ## Alternatives considered
 
