@@ -350,10 +350,18 @@ open http://localhost:3000            # console      http://localhost:8000/docs 
 Migrations are a separate one-shot service on purpose: running them from the API means N
 replicas racing to migrate the same database on every deploy.
 
-The compose file's **schema is validated** (`docker compose config`, which needs no
-daemon) and its images are built by the `docker` job in CI. It has never been brought
-`up` — the machine this was developed on had no Docker daemon, and saying otherwise would
-be exactly the kind of claim this project avoids making.
+**The stack is exercised in CI, and that is the only place it can be:** the machine this was
+developed on has no Docker daemon. The `smoke` job builds the images, brings up Postgres,
+Redis, the migration job, the API and a CPU worker, waits for all of them to report healthy,
+then uploads an image, queues a job, waits for the worker to finish it and downloads the
+cutout. If that job is green, the API, the queue, Celery, the database and the object store
+are wired to each other — which nothing in `tests/` can tell you, since those either run the
+pipeline in-process or mock the queue.
+
+It asks for the `classical` model because the learned checkpoints are gitignored, so a
+container has none. What is still unexercised is the GPU path: no runner here has a GPU, so
+the two GPU worker services and every TensorRT row remain unmeasured rather than measured
+and slow.
 
 ### Manual
 
