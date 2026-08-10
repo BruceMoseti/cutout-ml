@@ -34,6 +34,8 @@ from cutoutml.models.base import (
     SegmentationModel,
     WeightsUnavailableError,
 )
+from cutoutml.models.classical.baseline import ClassicalBaseline
+from cutoutml.models.onnx_adapter import OnnxAdapter
 from cutoutml.models.registry import (
     ModelNotFoundError,
     catalogue,
@@ -232,14 +234,19 @@ def test_get_model_with_load_false_does_not_load():
     assert model.load_seconds is not None and model.load_seconds >= 0.0
 
 
+def _classical(name: str, **overrides: Any) -> ClassicalBaseline:
+    model = get_model(name, load=False, **overrides)
+    assert isinstance(model, ClassicalBaseline)
+    return model
+
+
 def test_get_model_passes_spec_options_to_the_adapter():
-    assert get_model("classical-saliency", load=False).method == "saliency"
-    assert get_model("classical", load=False).method == "grabcut"
+    assert _classical("classical-saliency").method == "saliency"
+    assert _classical("classical").method == "grabcut"
 
 
 def test_overrides_win_over_spec_options():
-    model = get_model("classical", load=False, method="saliency")
-    assert model.method == "saliency"
+    assert _classical("classical", method="saliency").method == "saliency"
 
 
 def test_random_init_is_refused_for_specs_that_do_not_declare_it():
@@ -488,6 +495,7 @@ def test_onnx_adapter_reports_the_provider_it_actually_got():
     """Reporting a provider that failed to initialise is how bogus benchmark rows
     are produced, so metadata records get_providers() rather than the request."""
     model = get_model("cutoutnet-onnx", device="cpu")
+    assert isinstance(model, OnnxAdapter)
     assert model.active_providers
     assert model.active_providers[0] == "CPUExecutionProvider"
     assert model.metadata().runtime == "onnxruntime:CPUExecutionProvider"

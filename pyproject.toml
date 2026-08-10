@@ -147,6 +147,7 @@ module = [
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
+# Matching this pattern is why tests/__init__.py exists; see the note there.
 module = ["tests.*"]
 disallow_untyped_defs = false
 disallow_incomplete_defs = false

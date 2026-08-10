@@ -435,14 +435,19 @@ def test_s3_copy_is_server_side(s3):
     """Never pull bytes through this process to copy an object."""
     storage, stub, _ = s3
     storage.put("src", b"x")
-    called: list[str] = []
+    reads: list[str] = []
     original = stub.get_object
-    stub.get_object = lambda **kw: (called.append(kw["Key"]), original(**kw))[1]  # type: ignore[assignment]
+
+    def recording_get(**kwargs: Any) -> dict[str, Any]:
+        reads.append(kwargs["Key"])
+        return original(**kwargs)
+
+    stub.get_object = recording_get
 
     storage.copy("src", "dst")
 
     assert storage.get("dst") == b"x"
-    assert "src" not in called
+    assert "src" not in reads
 
 
 def test_s3_presign_upload_binds_the_content_type_into_the_signature(s3):
