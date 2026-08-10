@@ -600,13 +600,12 @@ def checkpoint_table(report: dict[str, Any]) -> str:
     training run. The digest is what ties a published IoU to the weights it came from.
 
     With one qualification, which is published rather than left for a reader to trip over.
-    A checkpoint converted from another artefact - the two U^2-Net files are converted from
-    the ONNX releases - has a digest that names one conversion, not the weights:
-    ``torch.save`` does not promise identical bytes for identical tensors, so re-running
-    the conversion moves the digest while the weights stay put. That happened here, and it
-    is why the source digest is published beside it when the checkpoint records one. The
-    weights were unchanged: re-measuring both models against the re-derived files
-    reproduced the published IoU to all sixteen digits.
+    The two U^2-Net rows carry digests written by a converter that embedded the conversion
+    timestamp, so they name a conversion rather than a set of weights and no longer match
+    the files on disk. The weights were unchanged: re-measuring both models against the
+    re-derived files reproduced the published IoU to all sixteen digits. The converter is
+    reproducible now, but the source digest is published beside the file digest anyway,
+    because it is the identity that does not depend on how the file was written.
     """
     seen: dict[str, tuple[str, str, str | None]] = {}
     for case in report["cases"]:
@@ -929,17 +928,28 @@ def render_benchmarks_doc(report: dict[str, Any], methodology: str | None = None
             " accuracy row is tied to the digest of the weights it was measured against.",
             "",
             "One caveat applies to a checkpoint that was *converted* rather than trained here,"
-            " which is how both U^2-Net files are produced from the published ONNX releases."
-            " `torch.save` does not promise identical bytes for identical tensors, so"
-            " re-running the conversion changes the file's digest while leaving the weights"
-            " untouched. A digest below that no longer matches your local file therefore does"
-            " not mean the row is stale. It happened here, and the check that settles it is to"
-            " re-measure: both models against re-derived files reproduced their published IoU"
-            " to all sixteen digits. The reproducible identity is the digest of the ONNX the"
-            " checkpoint came from, which is pinned in `download_weights.py`, listed in"
-            " `NOTICE`, and recorded next to the conversion timestamp in"
-            " `models/conversions/<model>.json` - the file that dates the re-conversion"
-            " responsible. Runs recorded after this one publish it in the table as well.",
+            " which is how both U^2-Net files are produced from the published ONNX releases. A"
+            " digest here that no longer matches your local file does not necessarily mean the"
+            " row is stale: an earlier converter embedded the conversion timestamp in the"
+            " checkpoint, so it identified a conversion rather than a set of weights. The"
+            " timestamp now lives in `models/conversions/<model>.json` and the converter is"
+            " reproducible - two conversions of one graph to the same destination name produce"
+            " byte-identical checkpoints, which `test_two_conversions_of_one_graph_produce"
+            "_byte_identical_checkpoints` asserts. Only rows measured before that change are"
+            " affected, and re-measuring settles it: both models against re-derived files"
+            " reproduced their published IoU to all sixteen digits. `benchmarks/results/README.md`"
+            " names the two digests concerned.",
+            "",
+            "Comparing digests has one trap worth knowing, because it is easy to conclude the"
+            " converter is non-deterministic when it is not. `torch.save` writes a zip whose"
+            " internal archive name comes from the destination path, so two checkpoints are"
+            " only digest-comparable when written to the same file name. Converted to"
+            " `a.pt` and `b.pt` the same weights hash differently; converted to `a/w.pt` and"
+            " `b/w.pt` they hash identically. The identity that avoids the question altogether"
+            " is `source_sha256`, the digest of the ONNX the checkpoint came from, which is"
+            " pinned in `download_weights.py`, listed in `NOTICE`, recorded in the conversion"
+            " record, and published in the table below for runs measured after it was surfaced"
+            " there.",
             "",
             checkpoint_table(report),
             "",
