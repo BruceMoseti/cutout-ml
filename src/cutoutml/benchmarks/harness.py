@@ -45,6 +45,7 @@ import numpy as np
 import psutil
 import torch
 
+from cutoutml.benchmarks.contention import LoadSnapshot, sample
 from cutoutml.benchmarks.environment import Environment, capture
 from cutoutml.core.config import get_settings
 from cutoutml.core.devices import (
@@ -145,6 +146,10 @@ class CaseResult:
     model_size_bytes: int | None
     stage_timings_ms: dict[str, float] | None
     compile: CompileOutcome = dataclasses.field(default_factory=not_attempted)
+    #: External CPU demand while this case's latency was measured. Attached per case
+    #: rather than per run because a suite takes many minutes and a neighbouring
+    #: workload can start or finish partway through it.
+    load: LoadSnapshot | None = None
     error: str | None = None
     notes: str = ""
 
@@ -173,6 +178,8 @@ class CaseResult:
             "model_size_bytes": self.model_size_bytes,
             "stage_timings_ms": self.stage_timings_ms,
             "compile": self.compile.as_dict(),
+            "load": self.load.as_dict() if self.load else None,
+            "latency_trustworthy": self.load.quiet if self.load else None,
             "error": self.error,
             "notes": self.notes,
         }
@@ -191,6 +198,8 @@ class BenchmarkConfig:
     torch_threads: int = 0
     refine: RefineConfig = dataclasses.field(default_factory=RefineConfig.fast)
     gc_between_cases: bool = True
+    #: Seconds spent sampling CPU contention before each case's timing loop.
+    load_sample_seconds: float = 1.0
 
     def as_dict(self) -> dict[str, Any]:
         d = dataclasses.asdict(self)
@@ -284,6 +293,7 @@ class BenchmarkHarness:
 
         try:
             compile_outcome = self._maybe_compile(model, case)
+            load = sample(self.config.load_sample_seconds)
             latency = self._measure_latency(model, case)
             accuracy_valid = not case.random_init
             accuracy = self._measure_accuracy(model, case) if accuracy_valid else None
@@ -294,6 +304,12 @@ class BenchmarkHarness:
                 notes.append("accuracy: n/a - random weights (latency only)")
             if compile_outcome.attempted and not compile_outcome.succeeded:
                 notes.append("torch.compile failed; timings are eager-mode")
+            if not load.quiet:
+                notes.append(
+                    f"latency measured under contention ({load.external_busy_cores:.1f} of "
+                    f"{load.logical_cpus} cores busy externally); accuracy is unaffected"
+                )
+                log.warning("benchmark_case_contended", case=case.name, load=load.summary)
             return CaseResult(
                 case=case,
                 status="ok",
@@ -304,6 +320,7 @@ class BenchmarkHarness:
                 model_size_bytes=self._model_size(model),
                 stage_timings_ms=stages,
                 compile=compile_outcome,
+                load=load,
                 notes="; ".join(notes),
             )
         finally:
@@ -537,6 +554,12 @@ def _summarise(results: Sequence[CaseResult]) -> dict[str, Any]:
     best = max(scored, key=lambda pair: pair[1], default=None)
     fastest = min(timed, key=lambda pair: pair[1], default=None)
 
+    # Surfaced at the top of the report so a reader does not have to open every case to
+    # learn that the timings came off a busy machine. Accuracy is deterministic and is
+    # therefore never qualified by this flag.
+    measured = [r.load for r in ok if r.load is not None]
+    contended = [snapshot for snapshot in measured if not snapshot.quiet]
+
     return {
         "cases_total": len(results),
         "cases_ok": len(ok),
@@ -546,6 +569,11 @@ def _summarise(results: Sequence[CaseResult]) -> dict[str, Any]:
         "best_iou": round(best[1], 5) if best else None,
         "fastest_case": fastest[0].case.name if fastest else None,
         "fastest_per_image_p50_ms": round(fastest[1], 4) if fastest else None,
+        "cases_measured_under_contention": len(contended),
+        "latency_trustworthy": not contended,
+        "peak_external_busy_cores": (
+            round(max(s.external_busy_cores for s in measured), 3) if measured else None
+        ),
     }
 
 
