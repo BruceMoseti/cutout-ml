@@ -6,9 +6,9 @@ The video tests split into two groups on purpose:
   no ffmpeg involved. This is where the memory bound lives (``_batched`` must
   never hold more than ``batch_size`` frames) and it is cheap to test exhaustively.
 * **End-to-end through ffmpeg**, which encodes a real clip, segments it and probes
-  the output. Slower, and skipped rather than mocked when ffmpeg is absent - a
-  mocked encoder would not catch the failure these tests exist for, which is
-  ffmpeg silently dropping the alpha plane.
+  the output. Marked ``integration`` because it shells out, and skipped rather than
+  mocked when ffmpeg is absent - a mocked encoder would not catch the failure these
+  tests exist for, which is ffmpeg silently dropping the alpha plane.
 """
 
 from __future__ import annotations
@@ -47,10 +47,22 @@ from cutoutml.pipelines.video import (
     make_test_video,
 )
 
-ffmpeg_required = pytest.mark.skipif(
-    shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None,
-    reason="ffmpeg/ffprobe not on PATH",
-)
+_ffmpeg_on_path = shutil.which("ffmpeg") is not None and shutil.which("ffprobe") is not None
+
+_skip_without_ffmpeg = pytest.mark.skipif(not _ffmpeg_on_path, reason="ffmpeg/ffprobe not on PATH")
+
+
+def ffmpeg_required(test: Any) -> Any:
+    """Mark a test as needing a real encoder on PATH.
+
+    Applies ``integration`` as well as the skip. ``tests/conftest.py`` documents
+    ``pytest -m "not integration"`` as a suite that touches nothing external, and CI
+    asserts the integration tests were not skipped; a test that shells out to ffmpeg
+    under only a ``skipif`` is excluded from both guarantees while looking like a unit
+    test. The skip is kept so the suite degrades to informative skips, rather than
+    failures, on a machine without ffmpeg.
+    """
+    return pytest.mark.integration(_skip_without_ffmpeg(test))
 
 
 def decode_rgba(data: bytes) -> np.ndarray:
