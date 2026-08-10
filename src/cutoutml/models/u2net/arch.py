@@ -151,19 +151,47 @@ class U2Net(nn.Module):
     """The full nested U-structure.
 
     ``stages`` is a table of ``(in_ch, mid_ch, out_ch, depth, dilated)`` for the
-    encoder; the decoder mirrors it. Six side outputs plus the fused output are
-    returned as logits, fusion first, so callers that only want the final mask can
-    take ``out[0]`` while the training loop supervises all seven.
+    encoder. Six side outputs plus the fused output are returned as logits, fusion
+    first, so callers that only want the final mask can take ``out[0]`` while the
+    training loop supervises all seven.
+
+    Why the decoder widths are a table and not a rule
+    ------------------------------------------------
+    ``decoders`` gives ``(mid_ch, out_ch)`` for the five decoder stages, shallowest
+    first (``stage1d`` .. ``stage5d``). They are transcribed from the published
+    architecture rather than derived from ``stages``, because the published widths do
+    not follow the encoder: with encoder widths ``64, 128, 256, 512, 512, 512`` the
+    decoders emit ``64, 64, 128, 256, 512`` and use bottleneck widths
+    ``16, 32, 64, 128, 256`` - so neither the output nor the bottleneck of a decoder
+    matches its paired encoder stage, and the shallowest decoder does not follow the
+    same relation as the other four.
+
+    Only ``in_ch`` is derived, because it is genuinely structural: a decoder consumes
+    the concatenation of the decoder above it and its encoder skip connection. Inner
+    depth and dilation are taken from the paired encoder stage, which the nested
+    U-structure does fix.
+
+    Getting these widths wrong is silent in three separate ways, which is why they are
+    written out explicitly here: every stage in the ``lite`` variant is 64 wide, so the
+    error does not appear there; a from-scratch training run simply learns whatever
+    shapes it is given; and :meth:`load_state_dict` is called with ``strict=False`` to
+    tolerate the upstream key renaming, so mismatched tensors are skipped and the model
+    runs on its random initialisation with nothing worse than a log warning. The
+    property that "this is shape-compatible with ``u2net.pth``" is enforced instead by
+    :mod:`cutoutml.models.u2net.from_onnx`, which fails if any tensor does not fit.
     """
 
     def __init__(
         self,
         stages: list[tuple[int, int, int, int, bool]],
+        decoders: list[tuple[int, int]],
         out_ch: int = 1,
     ) -> None:
         super().__init__()
         if len(stages) != 6:
             raise ValueError(f"U2Net expects 6 encoder stages, got {len(stages)}")
+        if len(decoders) != 5:
+            raise ValueError(f"U2Net expects 5 decoder stages, got {len(decoders)}")
         self.out_ch = out_ch
 
         self.encoders = nn.ModuleList(
@@ -171,24 +199,22 @@ class U2Net(nn.Module):
         )
         self.pool = nn.MaxPool2d(2, stride=2, ceil_mode=True)
 
-        # Decoder stage k consumes concat(upsampled stage k+1 output, encoder k
-        # output). Stage 6 (the deepest) has no decoder of its own.
-        decoders: list[nn.Module] = []
+        encoder_out = [s[2] for s in stages]
+        decoder_out = [out_c for (_, out_c) in decoders]
+
+        # Decoder stage k consumes concat(output of the decoder above it, encoder k
+        # output). The deepest encoder stage feeds the first decoder directly, since
+        # stage 6 has no decoder of its own.
+        blocks: list[nn.Module] = []
         for k in range(4, -1, -1):
-            in_c = stages[k][2] + stages[k + 1][2]
-            _, mid, out_c, depth, dil = stages[k]
-            decoders.append(RSU(in_c, mid, out_c, depth=depth, dilated=dil))
-        self.decoders = nn.ModuleList(decoders)  # order: stage5d, 4d, 3d, 2d, 1d
+            above = encoder_out[5] if k == 4 else decoder_out[k + 1]
+            mid, out_c = decoders[k]
+            _, _, _, depth, dilated = stages[k]
+            blocks.append(RSU(encoder_out[k] + above, mid, out_c, depth=depth, dilated=dilated))
+        self.decoders = nn.ModuleList(blocks)  # order: stage5d, 4d, 3d, 2d, 1d
 
         # Side output heads: one per decoder stage plus one from the deepest encoder.
-        side_channels = [
-            stages[0][2],
-            stages[1][2],
-            stages[2][2],
-            stages[3][2],
-            stages[4][2],
-            stages[5][2],
-        ]
+        side_channels = [*decoder_out, encoder_out[5]]
         self.side = nn.ModuleList([nn.Conv2d(c, out_ch, 3, padding=1) for c in side_channels])
         self.outconv = nn.Conv2d(out_ch * 6, out_ch, 1)
 
@@ -241,7 +267,13 @@ class U2Net(nn.Module):
 
 
 def u2net_full(out_ch: int = 1) -> U2Net:
-    """The 44M-parameter U^2-Net from the paper (``u2net.pth``)."""
+    """The 44M-parameter U^2-Net from the paper (``u2net.pth``).
+
+    Widths transcribed from the reference implementation. The decoder table is the part
+    worth checking against upstream: ``stage1d`` uses a 16-channel bottleneck where its
+    paired encoder stage uses 32, and every decoder emits its shallower neighbour's
+    width rather than its own stage's.
+    """
     stages: list[tuple[int, int, int, int, bool]] = [
         (3, 32, 64, 7, False),
         (64, 32, 128, 6, False),
@@ -250,14 +282,16 @@ def u2net_full(out_ch: int = 1) -> U2Net:
         (512, 256, 512, 4, True),
         (512, 256, 512, 4, True),
     ]
-    return U2Net(stages, out_ch=out_ch)
+    decoders = [(16, 64), (32, 64), (64, 128), (128, 256), (256, 512)]
+    return U2Net(stages, decoders, out_ch=out_ch)
 
 
 def u2net_lite(out_ch: int = 1) -> U2Net:
     """U^2-Net-P, the 1.1M-parameter variant (``u2netp.pth``).
 
-    Every stage uses 16 mid / 64 out channels, which is why it is ~40x smaller
-    while keeping the same nested topology and receptive field.
+    Every stage, encoder and decoder alike, uses 16 mid / 64 out channels, which is why
+    it is ~40x smaller while keeping the same nested topology and receptive field. That
+    uniformity is also why this variant cannot detect a wrong decoder width table.
     """
     stages: list[tuple[int, int, int, int, bool]] = [
         (3, 16, 64, 7, False),
@@ -267,4 +301,5 @@ def u2net_lite(out_ch: int = 1) -> U2Net:
         (64, 16, 64, 4, True),
         (64, 16, 64, 4, True),
     ]
-    return U2Net(stages, out_ch=out_ch)
+    decoders = [(16, 64)] * 5
+    return U2Net(stages, decoders, out_ch=out_ch)
