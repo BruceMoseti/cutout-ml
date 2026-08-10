@@ -918,15 +918,10 @@ METHODOLOGY_TEMPLATE = """## Methodology
 ### Why single-run timings are misleading
 
 A number like "37 ms" from one `time.perf_counter()` pair around one forward pass is
-close to useless, for four reasons that all apply on the machine these numbers came
+close to useless, for six reasons that all apply on the machine these numbers came
 from:
 
-1. **The first call is not representative.** PyTorch and oneDNN choose convolution
-   algorithms lazily and cache them; onnxruntime builds an execution plan; CUDA creates
-   a context and autotunes. The first inference is routinely 2-50x the steady-state
-   cost. The harness runs warmup iterations and *discards* them, reporting the first
-   iteration separately as `first_inference_ms` and model load as
-   `cold_start_seconds`.
+{warmup_penalty}
 
 2. **CUDA is asynchronous.** `model(x)` returns before the GPU has finished. Timing it
    without `torch.cuda.synchronize()` measures the launch overhead - often producing
@@ -1150,6 +1145,43 @@ def _ordering_caveat(report: dict[str, Any]) -> str:
     return f"{first}\n\n{second}\n"
 
 
+def _warmup_penalty(report: dict[str, Any]) -> str:
+    """Methodology item 1: how much the first call actually cost in this run.
+
+    The size of the penalty is the whole reason warmup is discarded, and it is recorded per
+    case as ``first_inference_ms`` - so quoting a remembered range here, rather than the
+    run's own spread, would be describing somebody else's hardware. The largest multiples
+    belong to CUDA context creation, which this machine cannot produce and which is
+    therefore named as unmeasured rather than folded into the range.
+    """
+    ratios = [
+        c["latency"]["first_inference_ms"] / c["latency"]["p50_ms"]
+        for c in report["cases"]
+        if c["status"] == "ok" and (c.get("latency") or {}).get("p50_ms")
+        if c["latency"].get("first_inference_ms")
+    ]
+    if ratios:
+        measured = (
+            f"Across this run's cases the first inference cost "
+            f"{min(ratios):.1f}-{max(ratios):.1f}x the steady-state median. On a GPU the "
+            f"multiple is larger, because context creation and autotuning happen there too, "
+            f"but this machine has no GPU and that figure is not measured here."
+        )
+    else:
+        measured = (
+            "This run records no first-iteration timing, so the size of the penalty is not "
+            "quantified here."
+        )
+    return _wrap_item(
+        1,
+        "**The first call is not representative.** PyTorch and oneDNN choose convolution "
+        "algorithms lazily and cache them; onnxruntime builds an execution plan; CUDA "
+        f"creates a context and autotunes. {measured} The harness runs warmup iterations "
+        "and *discards* them, reporting the first iteration separately as "
+        "`first_inference_ms` and model load as `cold_start_seconds`.",
+    )
+
+
 def _contention_limitation(report: dict[str, Any]) -> str:
     """The shared-machine limitation, or nothing when no row was measured under load.
 
@@ -1169,6 +1201,7 @@ def _contention_limitation(report: dict[str, Any]) -> str:
 def methodology_block(report: dict[str, Any]) -> str:
     """The methodology section, with its run-specific figures filled from the report."""
     return METHODOLOGY_TEMPLATE.format(
+        warmup_penalty=_warmup_penalty(report),
         ordering_caveat=_ordering_caveat(report),
         contention_limitation=_contention_limitation(report),
     )

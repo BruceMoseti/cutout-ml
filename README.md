@@ -38,18 +38,26 @@ table. Four caveats, stated before the numbers rather than after them:
 - **There is no GPU on that machine, so every figure is CPU-only.** TensorRT and CUDA rows
   are absent rather than estimated.
 - **Latency is single-threaded, so it is a per-core cost and pessimistic.** A dedicated
-  machine given one thread per core would be faster; by how much this environment cannot
-  say, so no multi-threaded headline number is published. That choice is measured, not
-  assumed — on a contended box PyTorch's thread scaling *inverts*, and
-  [the curve](docs/benchmarks.md#thread-scaling) is in the suite.
-- **Rows marked `†` were timed while another workload held the CPU.** The harness measures
-  external CPU demand per case, so this is evidence rather than a disclaimer; those
-  latencies are upper bounds on this hardware's cost. Accuracy is deterministic in the
-  weights and the eval set and is unaffected — so the accuracy columns carry no caveat.
+  machine given one thread per core would be faster, and the suite's own thread sweep says
+  by at least 2.8×. One thread is published anyway, because it is the only figure that does
+  not silently encode the core count of the machine that took it. What that costs is
+  measured rather than argued: [the curve](docs/benchmarks.md#thread-scaling) is in the
+  suite.
+- **Latency depends on where a row sat in the run, by about 1.5× on this hardware.** Two
+  rows measuring the identical configuration minutes apart on an idle machine do not agree
+  to better than that, and the suite publishes the disagreement instead of picking a
+  winner. Compare rows that ran near each other; `benchmarks/order_effect.py` measures the
+  effect directly.
 - **The eval set is synthetic, and the pretrained models were trained on photographs.**
   U²-Net therefore scores *below* a 1.1M-parameter model trained in-repo on the eval set's
   own distribution. That is a domain-shift measurement, not a quality ranking, and it is
   the most useful thing in the table: it is what the synthetic eval set costs.
+
+The run behind the table below is the first one taken on a genuinely idle machine — all 27
+timed cases sampled under half a busy external core — so no row carries the `†` contention
+mark. Three earlier runs of the same suite, two of them heavily contended, are kept in
+[`benchmarks/results/`](benchmarks/results/README.md) with an index explaining what each
+one is and is not comparable with.
 
 See [docs/benchmarks.md](docs/benchmarks.md) for the full methodology, the per-case load
 table and exactly what was and was not measured.
@@ -158,8 +166,9 @@ submitting a job to it. ([ADR-001](docs/decisions/ADR-001-model-registry.md))
 
 **Warmup is discarded and reported separately.** The first forward pass pays for lazy
 oneDNN algorithm selection, memory-pool growth and, on CUDA, context creation and
-autotuning — routinely 2–50× steady state. The harness runs warmup iterations, throws them
-away, and reports the first iteration and the model load as `first_inference_ms` and
+autotuning — up to 2.9× steady state across this run's cases, and more than that on a GPU,
+which is not measured here. The harness runs warmup iterations, throws them away, and
+reports the first iteration and the model load as `first_inference_ms` and
 `cold_start_seconds` instead of letting them corrupt the mean.
 
 **CUDA is synchronised around every timed region.** Kernel launches are asynchronous;
@@ -176,15 +185,27 @@ latency figure without a thread count is not a measurement, and the omission fai
 per core, so an uncontrolled "PyTorch vs ONNX" comparison differs by eight threads before it
 differs by a runtime. One count now reaches both, and is read back *from the runtime* rather
 than from the request. The suite then runs single-threaded, which looks perverse for a
-throughput project and is the most consequential measurement decision in it: intra-op
-parallelism only pays if the worker threads are resident on cores, and a U-Net forward pass
-is ~100 parallel regions each ending in a barrier that cannot retire until every worker has
-been scheduled. On a machine with more runnable threads than cores, eight threads cost two
-orders of magnitude more than one — the
-[measured curve](docs/benchmarks.md#thread-scaling) inverts, while ONNX Runtime's does not,
-because it fuses the graph into far fewer barriers. Single-threaded timings have no barriers
-to lose, so they are the only figures here that reproduce, and they understate the hardware
-rather than flattering it.
+throughput project and is the most consequential measurement decision in it. The reason is
+that the same sweep was run on this box twice, once while a neighbouring job held all eight
+cores and once idle, and the two disagree about eight threads by a factor of 300:
+
+| | 1 thread | 8 threads | |
+|---|---|---|---|
+| PyTorch eager, 7.9 of 8 cores busy elsewhere | 20.5 ms | 2202.3 ms | **108× slower** |
+| PyTorch eager, idle machine | 20.7 ms | 7.4 ms | 2.8× faster |
+| ONNX Runtime, 7.9 of 8 cores busy elsewhere | 16.4 ms | 10.1 ms | 1.6× faster |
+| ONNX Runtime, idle machine | 16.4 ms | 4.6 ms | 3.6× faster |
+
+Intra-op parallelism only pays if the worker threads are resident on cores, and a U-Net
+forward pass is ~100 parallel regions each ending in a barrier that cannot retire until
+every worker has been scheduled; ONNX Runtime survives the contended case because it fuses
+the graph into far fewer barriers and controls its own spin-then-yield policy at each. The
+one-thread column is the point: it moves by 1% between a saturated machine and an idle one,
+where the eight-thread column moves by two orders of magnitude. That is why the published
+figures are single-threaded — not because threads do not help, but because a wide figure
+measures the scheduler as much as the model, and this box cannot promise to be idle. Both
+runs are committed ([current](benchmarks/results/README.md), and the contended one
+alongside it), so the claim is checkable rather than remembered.
 
 **The harness measures the machine it is running on, and marks the rows that invalidates.**
 Busy cores attributable to processes *outside* this process tree are sampled before every
@@ -193,9 +214,11 @@ timing loop, in cores rather than as a load average so the threshold means the s
 wherever it appears — never quietly dropped, never scaled to what a quiet machine would have
 done. Accuracy is explicitly *not* qualified, because it is deterministic in the weights and
 the eval set. The thread sweep doubles as a repeatability check against the rows it
-duplicates, and where the two disagree the renderer says so: on this box the same model at
-the same thread count came out 1.7× apart minutes later, which is what the marks mean in
-practice.
+duplicates, and where the two disagree the renderer says so — including when the honest
+explanation is *not* contention: in the current run both rows sampled an idle machine and
+still landed 1.5× apart, so the renderer attributes the gap to position in the run and
+points at the experiment that isolated it rather than blaming a load the data says was
+absent.
 
 **Random weights can never produce an accuracy number.** An architecture with no loadable
 checkpoint is benchmarked for latency with random initialisation and marked
@@ -425,11 +448,12 @@ Ordered by what I would do next, not by ambition:
 1. **Measure a GPU.** Every fp16, `torch.compile`-on-CUDA and TensorRT code path is
    implemented and type-checked but unmeasured. The rows are absent, and they should be
    real.
-2. **Re-measure on a dedicated machine.** Eight of twenty-seven latency rows are still
-   marked `†`, and the suite is single-threaded throughout because that is the only figure
-   a shared box can produce twice. A dedicated machine would give a trustworthy
-   multi-threaded number and a thread-scaling curve that reflects the runtimes rather than
-   the scheduler. The harness already records everything needed to tell the two runs apart.
+2. **Publish a multi-threaded figure from a machine that can promise to be idle.** Every
+   latency row here is single-threaded, and the reason is that this box cannot make that
+   promise — the same eight-thread case has been measured 300× apart on it. A dedicated
+   machine would make the wide figure publishable, and would also close the 1.5× ordering
+   gap that a shared box leaves in the cross-row precision. The harness already records
+   everything needed to tell two such runs apart.
 3. **Evaluate on DUTS and DIS5K.** `RealSegmentationDataset` already handles both; what is
    missing is a run on hardware that can reach them, which would make the accuracy column
    comparable to published work.

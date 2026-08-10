@@ -175,14 +175,16 @@ resolution-dependent while inference is fixed at the letterboxed size.
 ### Why single-run timings are misleading
 
 A number like "37 ms" from one `time.perf_counter()` pair around one forward pass is
-close to useless, for four reasons that all apply on the machine these numbers came
+close to useless, for six reasons that all apply on the machine these numbers came
 from:
 
 1. **The first call is not representative.** PyTorch and oneDNN choose convolution
    algorithms lazily and cache them; onnxruntime builds an execution plan; CUDA creates
-   a context and autotunes. The first inference is routinely 2-50x the steady-state
-   cost. The harness runs warmup iterations and *discards* them, reporting the first
-   iteration separately as `first_inference_ms` and model load as
+   a context and autotunes. Across this run's cases the first inference cost 1.0-2.9x
+   the steady-state median. On a GPU the multiple is larger, because context creation
+   and autotuning happen there too, but this machine has no GPU and that figure is not
+   measured here. The harness runs warmup iterations and *discards* them, reporting the
+   first iteration separately as `first_inference_ms` and model load as
    `cold_start_seconds`.
 
 2. **CUDA is asynchronous.** `model(x)` returns before the GPU has finished. Timing it
