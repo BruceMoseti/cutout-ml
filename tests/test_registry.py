@@ -20,6 +20,7 @@ than mocked: a mocked GPU test proves nothing about a GPU.
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +28,7 @@ import numpy as np
 import pytest
 import torch
 
+from cutoutml.core.config import REPO_ROOT
 from cutoutml.core.imaging import LetterboxInfo
 from cutoutml.models.base import (
     ModelMetadata,
@@ -179,6 +181,52 @@ def test_usable_models_excludes_the_gpu_only_and_weightless_specs():
     assert "classical" in usable
     assert "cutoutnet" in usable
     assert "tensorrt" not in usable
+
+
+def test_every_trained_in_repo_claim_has_a_committed_training_record():
+    """`trained-in-repo` is a provenance claim, and the artefact that backs it is a
+    committed ``training/runs/*.json`` naming the checkpoint the run wrote.
+
+    This existed as a false claim: ``u2net-lite`` carried the tag and the words "trained
+    in-repo" with no checkpoint and no run record anywhere, so `cutoutml models` printed
+    `MISSING ... trained-in-repo` and docs/models.md contradicted itself about it. Nothing
+    failed, because a description is not executable - which is what this test fixes.
+    """
+    records = list((REPO_ROOT / "training" / "runs").glob("*.json"))
+    assert records, "no training run records committed; the claim cannot be checked"
+    trained: set[str] = set()
+    for record in records:
+        data = json.loads(record.read_text())
+        # `serves_as` is the registry name a run's checkpoint is written for; older
+        # records only carry the architecture, which is the same string for these.
+        trained.add(str(data.get("serves_as") or data.get("arch") or ""))
+        checkpoint = data.get("checkpoint")
+        if checkpoint:
+            trained.add(Path(checkpoint).stem)
+
+    for spec in list_models():
+        claims = "trained-in-repo" in spec.tags or "trained in-repo" in spec.description
+        if not claims:
+            continue
+        stem = Path(spec.default_weights or "").stem
+        assert stem in trained or spec.name in trained, (
+            f"{spec.name} claims to be trained in this repository, but no "
+            f"training/runs/*.json describes a run that produced {stem or spec.name!r}"
+        )
+
+
+def test_a_spec_with_no_weights_does_not_claim_to_have_been_trained():
+    """The inverse, checked on this machine rather than against the records: an entry the
+    registry reports as unavailable must not describe itself as trained."""
+    for spec in list_models():
+        if weights_available(spec):
+            continue
+        assert "trained-in-repo" not in spec.tags, (
+            f"{spec.name} has no artefact on disk yet is tagged trained-in-repo"
+        )
+        assert "trained in-repo" not in spec.description, (
+            f"{spec.name} has no artefact on disk yet its description says it was trained in-repo"
+        )
 
 
 def test_catalogue_is_json_serialisable_and_carries_availability():

@@ -257,8 +257,11 @@ register(
         source="https://github.com/BruceMoseti/cutout-ml",
         default_weights="cutoutnet/cutoutnet-tiny.pt",
         supports_random_init=True,
-        description="0.12M-parameter CutoutNet for measuring the latency floor.",
-        tags=("fast",),
+        description=(
+            "0.12M-parameter CutoutNet for measuring the latency floor. Trained in-repo "
+            "on the same data budget as cutoutnet-small and cutoutnet-base."
+        ),
+        tags=("fast", "trained-in-repo"),
         options={"variant": "tiny"},
     )
 )
@@ -343,7 +346,7 @@ register(
         supports_random_init=True,
         description=(
             "U^2-Net-P, the authors' 1.1M-parameter variant, with their published "
-            "weights. 40x smaller than u2net at the same topology, which makes the "
+            "weights. 39x smaller than u2net at the same topology, which makes the "
             "pair a capacity comparison on identical training data - the one thing "
             "the in-repo models cannot provide."
         ),
@@ -411,18 +414,23 @@ register(
         input_size=(256, 256),
         license=(
             "Architecture: Apache-2.0 (Qin et al., independently reimplemented). "
-            "Weights: MIT, trained in this repository on the synthetic dataset."
+            "Weights: none exist here. A checkpoint produced by `make weights` would "
+            "be MIT, trained on the synthetic dataset."
         ),
         source="https://github.com/xuebinqin/U-2-Net",
         default_weights="u2net/u2net-lite.pt",
         supports_random_init=True,
         description=(
-            "U^2-Net-P, the 1.1M-parameter nested-U variant, trained in-repo. Almost "
-            "the same parameter count as cutoutnet-small with a very different "
-            "compute profile, which is what makes the comparison informative. The "
-            "official u2netp.pth also loads here (keys are remapped)."
+            "U^2-Net-P, the 1.1M-parameter nested-U variant, registered for training "
+            "from scratch. NO CHECKPOINT EXISTS HERE and no training run of it is "
+            "committed, so it reports weights_available=false and its benchmark case "
+            "is recorded as skipped; `make weights` trains one. It is registered "
+            "because at almost the same parameter count as cutoutnet-small with a very "
+            "different compute profile the comparison would be informative. The "
+            "official u2netp.pth also loads here (keys are remapped), which is what "
+            "`u2netp` already does with it."
         ),
-        tags=("trained-in-repo",),
+        tags=("needs-weights", "untrained"),
         options={"variant": "lite"},
     )
 )

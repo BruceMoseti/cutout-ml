@@ -290,7 +290,7 @@ def u2net_lite(out_ch: int = 1) -> U2Net:
     """U^2-Net-P, the 1.1M-parameter variant (``u2netp.pth``).
 
     Every stage, encoder and decoder alike, uses 16 mid / 64 out channels, which is why
-    it is ~40x smaller while keeping the same nested topology and receptive field. That
+    it is 39x smaller while keeping the same nested topology and receptive field. That
     uniformity is also why this variant cannot detect a wrong decoder width table.
     """
     stages: list[tuple[int, int, int, int, bool]] = [

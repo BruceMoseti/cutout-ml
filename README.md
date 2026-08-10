@@ -479,10 +479,11 @@ Ordered by what I would do next, not by ambition:
 MIT — see [LICENSE](LICENSE). No weights are committed here at all, and the ones this
 project produces or fetches fall into two clearly separated groups:
 
-- **Trained here** (`cutoutnet-*`, `u2net-lite`): trained on data generated here, with no
-  pretrained initialisation anywhere, so the weights are MIT. That is the part most
-  background removers cannot say, because a research-use dataset carries its restriction
-  into whatever is trained on it.
+- **Trained here** (`cutoutnet-tiny`, `cutoutnet`, `cutoutnet-base` — plus `u2net-lite`
+  and `birefnet` if you choose to train them, which nothing here has): trained on data
+  generated here, with no pretrained initialisation anywhere, so the weights are MIT. That
+  is the part most background removers cannot say, because a research-use dataset carries
+  its restriction into whatever is trained on it.
 - **Published upstream** (`u2net`, `u2netp` and their ONNX pairs): the U²-Net authors'
   Apache-2.0 weights, fetched on demand. Converting them from ONNX to a PyTorch checkpoint
   does not change their licence, and each converted file carries its licence and source

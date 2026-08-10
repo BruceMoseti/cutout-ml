@@ -20,7 +20,7 @@ below for what to run instead.
 | `u2netp` | U²-Net-P, ~1.1M params | 320×320 | PyTorch | published, converted from ONNX | Apache-2.0 (reimplemented) | Apache-2.0 (upstream) |
 | `u2net-onnx` | U²-Net full graph | 320×320 | ONNX Runtime | published, downloaded | n/a (upstream graph) | Apache-2.0 (upstream) |
 | `u2netp-onnx` | U²-Net-P graph | 320×320 | ONNX Runtime | published, downloaded | n/a (upstream graph) | Apache-2.0 (upstream) |
-| `u2net-lite` | U²-Net-P, ~1.1M params | 256×256 | PyTorch | trained in-repo | Apache-2.0 (reimplemented) | MIT (in-repo) |
+| `u2net-lite` | U²-Net-P, ~1.1M params | 256×256 | PyTorch | **none here** — trainable by `make weights` | Apache-2.0 (reimplemented) | MIT, if you train it |
 | `birefnet` | BiRefNetCompact | 512×512 | PyTorch | not bundled | MIT (reimplemented) | see below |
 | `classical` | GrabCut from a centred rectangle | 320×320 | OpenCV | none needed | MIT | n/a |
 | `classical-saliency` | Spectral-residual saliency + Otsu | 320×320 | OpenCV | none needed | MIT | n/a |
@@ -115,7 +115,10 @@ pins both halves of that.
 - `u2net-onnx` / `u2netp-onnx` run the same weights under onnxruntime. Because parity is
   verified, the PyTorch and ONNX rows differ only by runtime — which is the only reason
   comparing them says anything.
-- `u2net-lite` remains the separate, in-repo trained U²-Net-P. Those weights are MIT.
+- `u2net-lite` remains the separate entry for training this architecture from scratch. No
+  checkpoint for it exists here and no training run of it is committed, so the registry
+  reports it unavailable and the suite records its case as skipped; `make weights` trains
+  one, and those weights would be MIT.
 - Accuracy from the published weights is **not comparable** to the in-repo runs. They were
   trained on DUTS, a real-photograph saliency dataset, and are evaluated here on a
   synthetic eval set. See [docs/benchmarks.md](benchmarks.md), where this shows up as the
