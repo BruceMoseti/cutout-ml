@@ -74,11 +74,11 @@ Within each runtime the weights, the batch size and the image are identical; the
 
 - **Repeatability**: `cutoutnet` at 1 thread(s) measured 20.7 ms here and 31.4 ms in the table above - 1.5x apart for the same configuration. Both rows sampled an idle machine, so contention does not account for it. What differs is where each sat in the run: latency here depends measurably on what ran earlier in the same process. `benchmarks/order_effect.py` isolates that effect - timing this configuration after a larger model, on a quiet machine, reproduces the faster figure with a standard deviation under 0.2 ms - and its result is archived under `benchmarks/results/experiments/`. Compare rows within this sweep, which ran back to back, rather than against the table above.
 
-Where a runtime gets *slower* with more threads, the extra time is not arithmetic but waiting. A U-Net forward pass is roughly a hundred parallel regions, each ending in a barrier, and a barrier cannot retire until every worker thread has been scheduled onto a core. Ask for eight threads on a machine whose cores are already committed and every one of those barriers waits on a descheduled thread, so the cost becomes a function of the scheduler rather than of the model. ONNX Runtime resists this better than PyTorch because it fuses the graph into far fewer parallel regions and controls its own spin-then-yield policy at each one.
+No runtime regressed with more threads in this run, so nothing here needs explaining away - but the mechanism that makes wide runs unsafe to publish from a shared machine is worth stating, because it is why the harness pins a count. A U-Net forward pass is roughly a hundred parallel regions, each ending in a barrier, and a barrier cannot retire until every worker thread has been scheduled onto a core. Ask for eight threads on a machine whose cores are already committed and every one of those barriers waits on a descheduled thread, so the cost becomes a function of the scheduler rather than of the model. ONNX Runtime resists this better than PyTorch because it fuses the graph into far fewer parallel regions and controls its own spin-then-yield policy at each one. Earlier runs of this same suite, taken while a neighbouring job held all eight cores, show exactly that regression; they are kept in `benchmarks/results/` for the comparison.
 
 Two consequences shape the rest of this document:
 
-1. **The suite runs single-threaded by default** (`--threads 1`). One thread has no barriers to lose, which makes it the only CPU latency figure on a shared machine that means the same thing twice. It also understates what dedicated hardware would do, and that is the correct direction for a published number to be wrong in.
+1. **The suite runs single-threaded by default** (`--threads 1`). Threads did pay off in this run, so the default is not a claim that they cannot: it is that a one-thread figure is the only one that does not silently encode the core count of whichever machine took it, and the only one whose reproducibility does not depend on that machine staying idle. It understates what dedicated hardware would do, and that is the correct direction for a published number to be wrong in.
 2. **A runtime comparison must fix the thread count.** ONNX Runtime resolves a request of 0 to one thread per core while PyTorch has its own default, so an uncontrolled 'PyTorch vs ONNX' row pair can differ by eight threads before it differs by a runtime. The harness now passes one count to both.
 
 ## Runtime comparison
@@ -209,22 +209,25 @@ from:
    reported, and per-image figures are always explicitly per-image.
 
 5. **A CPU latency figure without a thread count is not a measurement.** The same
-   weights on the same machine differ by more than an order of magnitude depending on
-   how many intra-op threads the runtime was given, and on a busy machine more threads
-   can be dramatically *worse* - see [Thread scaling](#thread-scaling) for the measured
-   curve. Every row records the thread count the runtime actually ran with, taken from
-   the runtime rather than from the request, because ONNX Runtime silently resolves a
-   request of 0 to one thread per core.
+   weights on the same machine can differ by more than an order of magnitude depending
+   on how many intra-op threads the runtime was given, and which direction they move in
+   is a property of the machine rather than of the model - see
+   [Thread scaling](#thread-scaling) for the curve this run measured and
+   `benchmarks/results/README.md` for an archived run of the same sweep in which more
+   threads were dramatically worse. Every row records the thread count the runtime
+   actually ran with, taken from the runtime rather than from the request, because ONNX
+   Runtime silently resolves a request of 0 to one thread per core.
 
 6. **Position in the run changes the number, and it is not noise.** This suite measures
-   `cutoutnet` eager at batch 1 and one thread twice - once in the main table, once as
-   the one-thread rung of the thread sweep - and on a completely idle machine the two
-   land about 1.5x apart, each with a standard deviation under 0.2 ms. That is not
-   contention (the harness sampled the load before both and both were quiet) and it is
-   not warmup (warmup iterations are discarded from both). It depends on what ran earlier
-   in the same process: `benchmarks/order_effect.py` times the identical configuration
-   after each of several preludes and finds that one particular earlier model reproduces
-   the faster figure while others, including a much more expensive one, change nothing.
+   `cutoutnet` eager at batch 1 on 1 thread twice - once in the main table, once as the
+   matching rung of the thread sweep - and the two land about 1.5x apart, each with a
+   standard deviation inside 4% of its own median. That is not contention - the harness
+   sampled the load before both timing loops and both were idle - and it is not warmup,
+   which is discarded from both. It is where each sat in the run: latency here depends
+   on what ran earlier in the same process, and `benchmarks/order_effect.py` times the
+   identical configuration after each of several preludes and finds that one particular
+   earlier model reproduces the faster figure while others, including a much more
+   expensive one, change nothing.
 
    The mechanism is not established here, and two plausible ones were tested and
    rejected: pre-faulting up to 1 GiB of heap before the timed loop changes nothing, and
@@ -233,8 +236,7 @@ from:
    thread sweep is a self-contained block rather than figures scattered through the main
    table, and treat a 1.5x agreement between two distant rows as the floor on this
    harness's cross-row precision. The experiment's own output, with the per-arm load
-   samples that rule out contention, is archived in
-   `benchmarks/results/experiments/`.
+   samples that rule out contention, is archived in `benchmarks/results/experiments/`.
 
 ### What is measured
 
@@ -317,9 +319,6 @@ and is the number a learned model has to beat to be worth its weights.
 - **No GPU was available.** Every measurement is CPU-only. The fp16/TensorRT code paths
   are implemented and type-checked but unmeasured here; rows for them are absent rather
   than estimated.
-- **The machine was shared.** See [Machine contention](#machine-contention) for exactly
-  which rows this affects and by how much. Timings on a contended row are upper bounds;
-  accuracy is unaffected.
 - **Latency here is single-threaded and therefore pessimistic.** These are per-core
   costs, not the best this hardware can do. A dedicated machine given one thread per
   core would be faster - by how much is a question this environment cannot answer, so

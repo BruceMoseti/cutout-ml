@@ -19,11 +19,11 @@ import pytest
 
 from cutoutml.benchmarks.harness import latest_report
 from cutoutml.benchmarks.render_report import (
-    METHODOLOGY,
     _contention_mark,
     _sweep_consistency_notes,
     _was_contended,
     main_table,
+    methodology_block,
     readme_table,
     render_benchmarks_doc,
     update_readme,
@@ -225,11 +225,54 @@ def test_a_readme_without_markers_is_left_alone_rather_than_appended_to(tmp_path
     assert readme.read_text() == "no markers here\n"
 
 
+def _ordering_report() -> dict[str, Any]:
+    """A run whose sweep re-measures a main-table row and disagrees with it by 1.5x."""
+    return report_of(
+        case(name="threadscale-eager-t1", p50=20.0, threads=1),
+        case(name="cutoutnet-fp32", p50=30.0, threads=None),
+    )
+
+
 def test_the_methodology_states_the_ordering_caveat():
     """It is the only documented limit on comparing two rows of the same table, so it has
     to survive edits to the surrounding prose."""
-    assert "order_effect.py" in METHODOLOGY
-    assert "Position in the run" in METHODOLOGY
+    block = methodology_block(_ordering_report())
+
+    assert "order_effect.py" in block
+    assert "Position in the run" in block
+
+
+def test_the_ordering_caveat_quantifies_itself_from_the_run_it_describes():
+    """Written down once, the spread would be quoted for runs that never measured it: it
+    has already moved between the archived runs as the machine got quieter."""
+    assert "1.5x apart" in methodology_block(_ordering_report())
+
+    tighter = report_of(
+        case(name="threadscale-eager-t1", p50=20.0, threads=1),
+        case(name="cutoutnet-fp32", p50=24.0, threads=None),
+    )
+    block = methodology_block(tighter)
+
+    assert "1.2x apart" in block
+    assert "1.5x" not in block
+
+
+def test_a_run_that_duplicates_no_configuration_makes_no_spread_claim():
+    block = methodology_block(report_of(case(name="cutoutnet-fp32", p50=30.0)))
+
+    assert "measures no configuration twice" in " ".join(block.split())
+    assert "x apart" not in block
+
+
+def test_the_shared_machine_limitation_is_listed_only_when_a_row_was_contended():
+    """A caveat on a run that has nothing to caveat invites a reader to discount rows that
+    carry no qualification, which is its own kind of dishonesty."""
+    quiet = report_of(case())
+    assert "The machine was shared" not in methodology_block(quiet)
+
+    busy = report_of(case(trustworthy=False, external_cores=7.5))
+    busy["summary"] = {"cases_measured_under_contention": 1}
+    assert "The machine was shared" in methodology_block(busy)
 
 
 def test_the_committed_report_still_renders():
@@ -239,7 +282,7 @@ def test_the_committed_report_still_renders():
     if report is None:
         pytest.skip("no committed benchmark results to render")
 
-    document = render_benchmarks_doc(report, METHODOLOGY)
+    document = render_benchmarks_doc(report)
 
     assert "# Benchmarks" in document
     assert report["run_id"] in document

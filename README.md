@@ -75,7 +75,7 @@ table and exactly what was and was not measured.
 
 **Benchmark environment**: Intel(R) Xeon(R) Processor, 8 vCPU (8 physical cores), 47 GB RAM, no GPU (CPU-only). GPU: **none**. Every number above was measured by `benchmarks/run.py` on this machine - none are copied from a paper or estimated.
 
-**Latency is single-threaded**, so these are per-core costs and a dedicated machine would beat them. That is deliberate: this box runs other tenants, and multi-threaded timings on it are dominated by barrier waits rather than by the model. The measured curve, and the reasoning, are in [docs/benchmarks.md](docs/benchmarks.md#thread-scaling).
+**Latency is single-threaded**, so these are per-core costs and a dedicated machine would beat them - by at least the 2.8x this run's own sweep measured, 20.7 ms on 1 thread against 7.4 ms on 8 for `pytorch-eager`, the weaker-scaling of the 2 runtimes swept. One thread is published anyway, because it is the only figure that does not silently encode the core count of the machine that took it, and because a multi-threaded figure on a shared box tracks the other tenants rather than the model. The measured curve, and the reasoning, are in [docs/benchmarks.md](docs/benchmarks.md#thread-scaling).
 
 `n/a *` = the network ran with **random weights** (no checkpoint exists that this architecture can load), so its latency is real but accuracy is not measurable.
 

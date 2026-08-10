@@ -251,10 +251,44 @@ def test_the_scaling_block_reports_the_curve_and_the_inversion():
     assert "threads bought what they should have" in block, "ONNX scaled, and that is stated"
 
 
+#: The same sweep on an idle machine, where wide runs pay off instead of collapsing. Both
+#: outcomes are in `benchmarks/results/`, and the renderer has to tell them apart: prose
+#: that explains a slowdown reads as an account of the table printed above it.
+SCALING_SWEEP = [
+    _case("eager-t1", runtime="pytorch-eager", threads=1, p50=20.7, sweep=True),
+    _case("eager-t8", runtime="pytorch-eager", threads=8, p50=7.4, sweep=True),
+    _case("onnx-t1", runtime="onnxruntime:CPU", threads=1, p50=16.4, sweep=True, model="m-onnx"),
+    _case("onnx-t8", runtime="onnxruntime:CPU", threads=8, p50=4.6, sweep=True, model="m-onnx"),
+]
+
+
 def test_the_scaling_block_explains_the_single_thread_default():
     block = thread_scaling_block(_report(SWEEP))
     assert "single-threaded by default" in block
     assert "barrier" in block
+
+
+def test_a_run_where_threads_paid_off_is_not_described_as_one_where_they_did_not():
+    block = thread_scaling_block(_report(SCALING_SWEEP))
+
+    assert "No runtime regressed with more threads in this run" in block
+    assert "Where a runtime gets *slower*" not in block
+    assert "more threads made it slower" not in block
+    assert "Threads did pay off in this run" in block
+
+
+def test_the_readme_justifies_one_thread_by_the_scaling_the_run_measured():
+    """Asserting that wide runs drown in barrier waits is only honest where the sweep shows
+    them doing so. Where it shows the opposite, the reason to pin one thread is
+    comparability, and the caveat has to say that instead."""
+    table = readme_table(_report(SCALING_SWEEP))
+
+    assert "dominated by barrier waits" not in table
+    # 20.7 / 7.4 = 2.8x for eager against 3.6x for ONNX: the weaker of the two is quoted,
+    # so the claim rests on the smallest measured margin rather than the best one.
+    assert "by at least the 2.8x this run's own sweep measured" in table
+    assert "20.7 ms on 1 thread against 7.4 ms on 8 for `pytorch-eager`" in table
+    assert "weaker-scaling of the 2 runtimes swept" in table
 
 
 def test_the_sweep_reports_disagreement_with_the_row_it_duplicates():
