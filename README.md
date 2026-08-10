@@ -33,10 +33,15 @@ Every design decision that was expensive to make is written down in
 ## Benchmarks
 
 All numbers below were measured by `benchmarks/run.py` on the machine described in the
-table. Three caveats, stated before the numbers rather than after them:
+table. Four caveats, stated before the numbers rather than after them:
 
 - **There is no GPU on that machine, so every figure is CPU-only.** TensorRT and CUDA rows
   are absent rather than estimated.
+- **Latency is single-threaded, so it is a per-core cost and pessimistic.** A dedicated
+  machine given one thread per core would be faster; by how much this environment cannot
+  say, so no multi-threaded headline number is published. That choice is measured, not
+  assumed — on a contended box PyTorch's thread scaling *inverts*, and
+  [the curve](docs/benchmarks.md#thread-scaling) is in the suite.
 - **Rows marked `†` were timed while another workload held the CPU.** The harness measures
   external CPU demand per case, so this is evidence rather than a disclaimer; those
   latencies are upper bounds on this hardware's cost. Accuracy is deterministic in the
@@ -166,6 +171,33 @@ impossibly fast numbers. The code path is identical on CPU, where it is a no-op.
 **Percentiles, not a mean.** p50/p95/p99/mean/stddev/min/max per case. The stddev is the
 number to read first: if it is large relative to p50, the machine was not quiet and nothing
 else in the row should be trusted.
+
+**Intra-op threads are pinned, and the reason is measured rather than asserted.** A CPU
+latency figure without a thread count is not a measurement, and the omission fails silently:
+`torch.set_num_threads` does not reach ONNX Runtime, which sizes its own pool at one thread
+per core, so an uncontrolled "PyTorch vs ONNX" comparison differs by eight threads before it
+differs by a runtime. One count now reaches both, and is read back *from the runtime* rather
+than from the request. The suite then runs single-threaded, which looks perverse for a
+throughput project and is the most consequential measurement decision in it: intra-op
+parallelism only pays if the worker threads are resident on cores, and a U-Net forward pass
+is ~100 parallel regions each ending in a barrier that cannot retire until every worker has
+been scheduled. On a machine with more runnable threads than cores, eight threads cost two
+orders of magnitude more than one — the
+[measured curve](docs/benchmarks.md#thread-scaling) inverts, while ONNX Runtime's does not,
+because it fuses the graph into far fewer barriers. Single-threaded timings have no barriers
+to lose, so they are the only figures here that reproduce, and they understate the hardware
+rather than flattering it.
+
+**The harness measures the machine it is running on, and marks the rows that invalidates.**
+Busy cores attributable to processes *outside* this process tree are sampled before every
+timing loop, in cores rather than as a load average so the threshold means the same thing on
+4 cores and 64. A contended row is published with the evidence attached and marked `†`
+wherever it appears — never quietly dropped, never scaled to what a quiet machine would have
+done. Accuracy is explicitly *not* qualified, because it is deterministic in the weights and
+the eval set. The thread sweep doubles as a repeatability check against the rows it
+duplicates, and where the two disagree the renderer says so: on this box the same model at
+the same thread count came out 1.7× apart minutes later, which is what the marks mean in
+practice.
 
 **Random weights can never produce an accuracy number.** An architecture with no loadable
 checkpoint is benchmarked for latency with random initialisation and marked
