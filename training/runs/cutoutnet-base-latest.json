@@ -1,0 +1,324 @@
+{
+  "run_id": "cutoutnet-base-20260810T065055Z",
+  "arch": "cutoutnet-base",
+  "serves_as": "cutoutnet-base",
+  "config": {
+    "arch": "cutoutnet-base",
+    "resolution": 256,
+    "train_samples": 2048,
+    "val_samples": 192,
+    "epochs": 14,
+    "batch_size": 16,
+    "lr": 0.003,
+    "min_lr": 1e-05,
+    "weight_decay": 0.0001,
+    "warmup_steps": 60,
+    "seed": 1337,
+    "num_workers": 6,
+    "device": "auto",
+    "precision": "fp32",
+    "grad_clip": 1.0,
+    "ema_decay": 0.0,
+    "channels_last": true,
+    "loss": {
+      "bce": 1.0,
+      "iou": 1.0,
+      "edge": 0.5,
+      "ssim": 0.0,
+      "gradient": 0.3,
+      "side": 0.4
+    },
+    "output_dir": null,
+    "run_dir": "/agent/cutout-ml/training/runs",
+    "dataset_seed": 20240817,
+    "torch_threads": 0
+  },
+  "param_count": 4343598,
+  "device": "cpu",
+  "device_name": "Intel(R) Xeon(R) Processor",
+  "precision": "fp32",
+  "torch_version": "2.13.0+cpu",
+  "torch_threads": 8,
+  "dataset": {
+    "dataset_id": "synthetic-v1.0.0-seed20240817",
+    "generator": "cutoutml.datasets.synthetic",
+    "generator_version": "1.0.0",
+    "master_seed": 20240817,
+    "resolution": [
+      256,
+      256
+    ],
+    "splits": [
+      {
+        "name": "train",
+        "count": 2048,
+        "seed_offset": 0
+      },
+      {
+        "name": "val",
+        "count": 192,
+        "seed_offset": 1000000
+      }
+    ],
+    "config": {
+      "resolution": [
+        256,
+        256
+      ],
+      "shapes": [
+        "blob",
+        "superellipse",
+        "star",
+        "rounded_rect",
+        "glyph",
+        "layered"
+      ],
+      "backgrounds": [
+        "linear_gradient",
+        "radial_gradient",
+        "fbm",
+        "stripes",
+        "blurred_field",
+        "noise_photo"
+      ],
+      "max_objects": 2,
+      "distractor_prob": 0.45,
+      "max_distractors": 2,
+      "soft_edge_prob": 0.5,
+      "soft_edge_sigma": [
+        0.6,
+        2.4
+      ],
+      "blur_prob": 0.35,
+      "blur_sigma": [
+        0.4,
+        1.8
+      ],
+      "jpeg_prob": 0.35,
+      "jpeg_quality": [
+        35,
+        92
+      ],
+      "noise_prob": 0.4,
+      "noise_sigma": [
+        2.0,
+        12.0
+      ],
+      "brightness_jitter": 0.22,
+      "contrast_jitter": 0.25,
+      "rotation_degrees": 30.0,
+      "scale_range": [
+        0.62,
+        1.18
+      ],
+      "translation_frac": 0.27,
+      "color_collision_prob": 0.3,
+      "min_alpha_coverage": 0.03,
+      "max_alpha_coverage": 0.75
+    },
+    "fingerprint": "5fd99053f1561451590bb73c5787de9de8e7257b7eb70278665309da71cd61c4",
+    "fingerprint_samples": 8,
+    "notes": "Procedurally generated. Accuracy measured on this set is NOT comparable to published DUTS/DIS5K numbers; use cutoutml.datasets.real for those."
+  },
+  "normalization": {
+    "mean": [
+      0.5,
+      0.5,
+      0.5
+    ],
+    "std": [
+      0.5,
+      0.5,
+      0.5
+    ]
+  },
+  "total_seconds": 2546.2,
+  "best_val_iou": 0.84337,
+  "best_val_mae": 0.054851,
+  "checkpoint": "/agent/cutout-ml/models/cutoutnet/cutoutnet-base.pt",
+  "checkpoint_bytes": 17667153,
+  "history": [
+    {
+      "epoch": 1,
+      "lr": 0.0029889736900682424,
+      "seconds": 270.956,
+      "samples_per_second": 7.56,
+      "train_bce": 0.958216,
+      "train_iou": 0.633084,
+      "train_edge": 0.329043,
+      "train_total": 3.765225,
+      "val_iou": 0.59179,
+      "val_mae": 0.194161,
+      "val_samples": 192.0
+    },
+    {
+      "epoch": 2,
+      "lr": 0.002907455209949642,
+      "seconds": 173.673,
+      "samples_per_second": 11.79,
+      "train_bce": 0.338962,
+      "train_iou": 0.392637,
+      "train_edge": 0.121949,
+      "train_total": 1.761975,
+      "val_iou": 0.708798,
+      "val_mae": 0.109887,
+      "val_samples": 192.0
+    },
+    {
+      "epoch": 3,
+      "lr": 0.002750677257595157,
+      "seconds": 174.331,
+      "samples_per_second": 11.75,
+      "train_bce": 0.270688,
+      "train_iou": 0.30743,
+      "train_edge": 0.099769,
+      "train_total": 1.406198,
+      "val_iou": 0.75417,
+      "val_mae": 0.097515,
+      "val_samples": 192.0
+    },
+    {
+      "epoch": 4,
+      "lr": 0.0025270529544140943,
+      "seconds": 176.281,
+      "samples_per_second": 11.62,
+      "train_bce": 0.229557,
+      "train_iou": 0.268595,
+      "train_edge": 0.090086,
+      "train_total": 1.224511,
+      "val_iou": 0.789034,
+      "val_mae": 0.079082,
+      "val_samples": 192.0
+    },
+    {
+      "epoch": 5,
+      "lr": 0.0022485825745807196,
+      "seconds": 175.257,
+      "samples_per_second": 11.69,
+      "train_bce": 0.206851,
+      "train_iou": 0.25,
+      "train_edge": 0.083052,
+      "train_total": 1.129341,
+      "val_iou": 0.799212,
+      "val_mae": 0.073516,
+      "val_samples": 192.0
+    },
+    {
+      "epoch": 6,
+      "lr": 0.001930209578442932,
+      "seconds": 181.742,
+      "samples_per_second": 11.27,
+      "train_bce": 0.189964,
+      "train_iou": 0.229356,
+      "train_edge": 0.078596,
+      "train_total": 1.044565,
+      "val_iou": 0.814088,
+      "val_mae": 0.069565,
+      "val_samples": 192.0
+    },
+    {
+      "epoch": 7,
+      "lr": 0.001589018706742183,
+      "seconds": 174.116,
+      "samples_per_second": 11.76,
+      "train_bce": 0.165727,
+      "train_iou": 0.206228,
+      "train_edge": 0.073441,
+      "train_total": 0.936631,
+      "val_iou": 0.801992,
+      "val_mae": 0.073201,
+      "val_samples": 192.0
+    },
+    {
+      "epoch": 8,
+      "lr": 0.0012433191680390953,
+      "seconds": 173.496,
+      "samples_per_second": 11.8,
+      "train_bce": 0.146349,
+      "train_iou": 0.19262,
+      "train_edge": 0.069326,
+      "train_total": 0.860621,
+      "val_iou": 0.821494,
+      "val_mae": 0.06562,
+      "val_samples": 192.0
+    },
+    {
+      "epoch": 9,
+      "lr": 0.0009116621179430635,
+      "seconds": 172.748,
+      "samples_per_second": 11.86,
+      "train_bce": 0.1308,
+      "train_iou": 0.173141,
+      "train_edge": 0.065332,
+      "train_total": 0.778403,
+      "val_iou": 0.829902,
+      "val_mae": 0.060466,
+      "val_samples": 192.0
+    },
+    {
+      "epoch": 10,
+      "lr": 0.0006118451548204808,
+      "seconds": 175.11,
+      "samples_per_second": 11.7,
+      "train_bce": 0.114904,
+      "train_iou": 0.153297,
+      "train_edge": 0.061656,
+      "train_total": 0.698427,
+      "val_iou": 0.833375,
+      "val_mae": 0.057753,
+      "val_samples": 192.0
+    },
+    {
+      "epoch": 11,
+      "lr": 0.0003599572533864686,
+      "seconds": 178.243,
+      "samples_per_second": 11.49,
+      "train_bce": 0.095603,
+      "train_iou": 0.13359,
+      "train_edge": 0.057851,
+      "train_total": 0.611404,
+      "val_iou": 0.8376,
+      "val_mae": 0.056566,
+      "val_samples": 192.0
+    },
+    {
+      "epoch": 12,
+      "lr": 0.00016951538758075806,
+      "seconds": 173.713,
+      "samples_per_second": 11.79,
+      "train_bce": 0.079179,
+      "train_iou": 0.11422,
+      "train_edge": 0.054631,
+      "train_total": 0.53066,
+      "val_iou": 0.84337,
+      "val_mae": 0.054851,
+      "val_samples": 192.0
+    },
+    {
+      "epoch": 13,
+      "lr": 5.0739173837779976e-05,
+      "seconds": 173.756,
+      "samples_per_second": 11.79,
+      "train_bce": 0.069272,
+      "train_iou": 0.103118,
+      "train_edge": 0.053009,
+      "train_total": 0.483891,
+      "val_iou": 0.836449,
+      "val_mae": 0.05702,
+      "val_samples": 192.0
+    },
+    {
+      "epoch": 14,
+      "lr": 1.0002459320035892e-05,
+      "seconds": 172.128,
+      "samples_per_second": 11.9,
+      "train_bce": 0.065791,
+      "train_iou": 0.098608,
+      "train_edge": 0.051819,
+      "train_total": 0.465044,
+      "val_iou": 0.839532,
+      "val_mae": 0.05604,
+      "val_samples": 192.0
+    }
+  ]
+}
