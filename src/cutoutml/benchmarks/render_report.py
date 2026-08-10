@@ -46,9 +46,23 @@ def _display_name(case: dict[str, Any], metadata: dict[str, Any] | None) -> str:
     if metadata and metadata.get("runtime", "").startswith("onnxruntime"):
         provider = metadata["runtime"].split(":", 1)[-1].replace("ExecutionProvider", "")
         parts.append(f"ONNX/{provider}")
+    if (case.get("compile") or {}).get("succeeded"):
+        parts.append("compiled")
     if case["case"]["random_init"]:
         parts.append("random-init")
     return " ".join(parts)
+
+
+def _runtime_label(case: dict[str, Any], metadata: dict[str, Any] | None) -> str:
+    """What actually executed the row.
+
+    The harness's own label is preferred over the adapter's ``metadata.runtime`` because
+    only the former distinguishes eager from compiled - and, critically, distinguishes a
+    successful compile from a failed one that silently fell back to eager. Reading the
+    adapter's value here would print "pytorch" for both and quietly invite a reader to
+    attribute an eager measurement to Inductor.
+    """
+    return str(case.get("runtime") or (metadata or {}).get("runtime") or "?")
 
 
 def main_table(report: dict[str, Any]) -> str:
@@ -78,7 +92,7 @@ def main_table(report: dict[str, Any]) -> str:
             "| {model} | {runtime} | {precision} | {batch} | {iou} | {mae} | {fbeta} | {bf1} | "
             "{p50} | {p95} | {ips} | {rss} | {size} |".format(
                 model=_display_name(case, meta),
-                runtime=meta.get("runtime", "?"),
+                runtime=_runtime_label(case, meta),
                 precision=case["case"]["precision"],
                 batch=case["case"]["batch_size"],
                 iou=iou,
@@ -150,6 +164,106 @@ def accuracy_detail_table(report: dict[str, Any]) -> str:
                 r=_fmt(a.get("recall"), 4),
             )
         )
+    return "\n".join(rows)
+
+
+def runtime_comparison_table(report: dict[str, Any]) -> str:
+    """Eager vs ``torch.compile`` vs ONNX Runtime, grouped so the delta is attributable.
+
+    Grouped by (model, batch size) because a runtime comparison across different batch
+    sizes is not a comparison. Speedup is expressed against the eager row in the same
+    group, and a group without one prints no speedup rather than a ratio against whatever
+    else happened to be present.
+    """
+    groups: dict[tuple[str, int], list[dict[str, Any]]] = {}
+    for case in report["cases"]:
+        if case["status"] != "ok" or not case.get("latency"):
+            continue
+        spec = case["case"]
+        # Random-weight rows are excluded: their latency is real, but they exist to price
+        # an architecture, and mixing them in invites a comparison across weights.
+        if spec["random_init"]:
+            continue
+        groups.setdefault((spec["model"].removesuffix("-onnx"), spec["batch_size"]), []).append(
+            case
+        )
+
+    comparable = {k: v for k, v in groups.items() if len(v) > 1}
+    if not comparable:
+        return (
+            "_This run contains no model measured under more than one runtime at the same "
+            "batch size, so there is nothing to compare._"
+        )
+
+    rows = [
+        "| Model | Batch | Runtime | Compiled | Codegen s | p50 ms/img | img/s | vs eager |",
+        "|---|---|---|---|---|---|---|---|",
+    ]
+    for (model, batch), cases in sorted(comparable.items()):
+        baseline = next(
+            (
+                c["latency"]["per_image_p50_ms"]
+                for c in cases
+                if c.get("runtime") == "pytorch-eager"
+            ),
+            None,
+        )
+        for case in sorted(cases, key=lambda c: c["latency"]["per_image_p50_ms"]):
+            compile_outcome = case.get("compile") or {}
+            per_image = case["latency"]["per_image_p50_ms"]
+            speedup = (
+                f"{baseline / per_image:.2f}x" if baseline and per_image else "n/a (no eager row)"
+            )
+            rows.append(
+                "| {model} | {batch} | {rt} | {compiled} | {warm} | {p50} | {ips} | {speedup} |".format(
+                    model=model,
+                    batch=batch,
+                    rt=_runtime_label(case, case.get("model_metadata")),
+                    compiled=(
+                        "yes"
+                        if compile_outcome.get("succeeded")
+                        else ("FAILED" if compile_outcome.get("attempted") else "-")
+                    ),
+                    warm=_fmt(compile_outcome.get("warm_seconds"), 1),
+                    p50=_fmt(per_image, 2),
+                    ips=_fmt(case["latency"]["throughput_images_per_second"], 1),
+                    speedup=speedup,
+                )
+            )
+
+    failures = [
+        c
+        for c in report["cases"]
+        if (c.get("compile") or {}).get("attempted") and not c["compile"].get("succeeded")
+    ]
+    if failures:
+        rows.append("")
+        rows.append("Compilation failures (the row above fell back to eager execution):")
+        rows.append("")
+        for case in failures:
+            rows.append(f"- `{case['case']['name']}`: {case['compile'].get('error')}")
+    return "\n".join(rows)
+
+
+def checkpoint_table(report: dict[str, Any]) -> str:
+    """Which exact weights produced the accuracy figures above.
+
+    A checkpoint *path* is not provenance: the file behind it is overwritten by the next
+    training run. The digest is what lets a reader confirm that a published IoU came from
+    the weights currently in the repository.
+    """
+    seen: dict[str, tuple[str, str]] = {}
+    for case in report["cases"]:
+        meta = case.get("model_metadata") or {}
+        digest = meta.get("weights_sha256")
+        if not digest or not case.get("accuracy_valid"):
+            continue
+        seen[str(meta.get("weights_path"))] = (str(meta.get("name")), str(digest))
+    if not seen:
+        return "_No row in this run loaded a checkpoint from disk._"
+    rows = ["| Model | Weights | SHA-256 |", "|---|---|---|"]
+    for path, (name, digest) in sorted(seen.items(), key=lambda kv: kv[1][0]):
+        rows.append(f"| {name} | `{Path(path).name}` | `{digest[:16]}...` |")
     return "\n".join(rows)
 
 
@@ -239,7 +353,7 @@ def readme_table(report: dict[str, Any]) -> str:
         rows.append(
             "| **{m}** | {rt} | {iou} | {mae} | {p50} ms | {ips} img/s | {size} |".format(
                 m=_display_name(case, meta),
-                rt=meta.get("runtime", "?"),
+                rt=_runtime_label(case, meta),
                 iou=_fmt(acc.get("iou"), 4) if valid and acc else "n/a *",
                 mae=_fmt(acc.get("mae"), 4) if valid and acc else "n/a *",
                 p50=_fmt(lat.get("per_image_p50_ms"), 1),
@@ -288,6 +402,19 @@ def render_benchmarks_doc(report: dict[str, Any], methodology: str) -> str:
             "## Results",
             "",
             main_table(report),
+            "",
+            "## Runtime comparison",
+            "",
+            "The same weights at the same batch size under PyTorch eager, "
+            "`torch.compile` (Inductor) and ONNX Runtime, so the difference between the",
+            "rows is attributable to the runtime and nothing else. `Codegen s` is the",
+            "one-off tracing and compilation cost, which the timed loop excludes.",
+            "",
+            runtime_comparison_table(report),
+            "",
+            "## Checkpoint provenance",
+            "",
+            checkpoint_table(report),
             "",
             "## Per-stage timing breakdown",
             "",
@@ -358,6 +485,27 @@ from:
   graph/session construction. This is what a scale-from-zero request pays.
 - **Model size**: on-disk checkpoint/graph size, or the in-memory parameter size when
   weights are random.
+
+### Runtimes compared, and how a failure is reported
+
+Three runtimes execute the *same* trained weights:
+
+- **PyTorch eager** - the reference. Convolutions already go through oneDNN, which is
+  why the compiled speedup below is smaller than a GPU reader might expect.
+- **`torch.compile` (Inductor)** - traces the graph and generates C++. Two things make
+  this easy to report dishonestly, so both are handled explicitly: the first call costs
+  seconds to tens of seconds (recorded separately as `Codegen s` and excluded from the
+  timed loop), and the compile can *fail* at runtime on a machine without a C++
+  toolchain. A failure falls back to eager and is printed as `FAILED` with the exception,
+  never as a compiled row - which is why the Runtime column comes from the harness rather
+  than from the model adapter.
+- **ONNX Runtime (CPU execution provider)** - a genuinely different implementation of
+  the same graph. The export is asserted to compute the same function to within 2e-3 in
+  `tests/test_registry.py`, so a runtime row cannot silently be a different model.
+
+**TensorRT is implemented but unmeasured.** The adapter exists and is type-checked, but
+building an engine requires a CUDA GPU, and no row is published for it. That is a gap,
+not a result.
 
 ### Accuracy metrics
 
@@ -479,9 +627,11 @@ if __name__ == "__main__":  # pragma: no cover
 
 __all__ = [
     "METHODOLOGY",
+    "checkpoint_table",
     "main",
     "readme_table",
     "render",
     "render_benchmarks_doc",
+    "runtime_comparison_table",
     "update_readme",
 ]
