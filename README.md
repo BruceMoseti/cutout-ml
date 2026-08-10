@@ -427,17 +427,22 @@ Ordered by what I would do next, not by ambition:
 1. **Measure a GPU.** Every fp16, `torch.compile`-on-CUDA and TensorRT code path is
    implemented and type-checked but unmeasured. The rows are absent, and they should be
    real.
-2. **Evaluate on DUTS and DIS5K.** `RealSegmentationDataset` already handles both; what is
+2. **Re-measure on a quiet, dedicated machine.** Almost every latency row here is marked
+   `†`, and the suite is single-threaded because that is the only figure this box can
+   produce twice. A dedicated machine would give both a trustworthy multi-threaded number
+   and a thread-scaling curve that reflects the runtimes rather than the scheduler. The
+   harness already records everything needed to tell the two runs apart.
+3. **Evaluate on DUTS and DIS5K.** `RealSegmentationDataset` already handles both; what is
    missing is a run on hardware that can reach them, which would make the accuracy column
    comparable to published work.
-3. **Webhooks.** Job completion is discovered by polling today.
-4. **A reconciliation job.** The database is authoritative for storage, so an object
+4. **Webhooks.** Job completion is discovered by polling today.
+5. **A reconciliation job.** The database is authoritative for storage, so an object
    without a row is garbage and a row without an object is a broken asset. Nothing detects
    either yet.
-5. **Trimap-based matting.** The current models predict alpha directly. A trimap stage
+6. **Trimap-based matting.** The current models predict alpha directly. A trimap stage
    would materially improve hair and fur, which is where the synthetic eval set is
    deliberately hardest.
-6. **API keys and refresh tokens.** Machine-to-machine use currently means storing a
+7. **API keys and refresh tokens.** Machine-to-machine use currently means storing a
    password.
 
 ## Licence
