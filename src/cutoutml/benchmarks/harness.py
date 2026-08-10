@@ -217,13 +217,14 @@ class BenchmarkConfig:
     #: parallelism only pays off if the runtime's worker threads are actually resident
     #: on cores. When they are not - because the machine has more runnable threads than
     #: cores - every one of the ~100 parallel regions in a U-Net forward pass ends in a
-    #: barrier that waits for a descheduled thread, and the barriers dominate. Measured
-    #: on this 8-vCPU box while it carried other tenants: cutoutnet at 320x320 took
-    #: 46.7 ms with one thread and 2854 ms with eight, a 61x *penalty* for eight times
-    #: the threads. Single-threaded numbers contain no barriers, so they are the only
-    #: CPU latency figures that are reproducible on a shared machine, and they are
-    #: honest about per-core cost. Use ``--threads 0`` on a quiet, dedicated box, and
-    #: read ``thread_scaling_cases()`` for the scaling curve itself.
+    #: barrier that waits for a descheduled thread, and the barriers dominate. On this
+    #: 8-vCPU box, carrying other tenants, eight threads cost two orders of magnitude
+    #: more than one rather than saving anything. The committed thread-scaling rows in
+    #: ``benchmarks/results/`` hold the figures, which is where a number belongs.
+    #:
+    #: Single-threaded timings contain no barriers, so they are the only CPU latency
+    #: figures that reproduce on a shared machine, and they understate rather than
+    #: overstate the hardware. Use ``--threads 0`` on a quiet, dedicated box.
     threads: int = 1
     refine: RefineConfig = dataclasses.field(default_factory=RefineConfig.fast)
     gc_between_cases: bool = True

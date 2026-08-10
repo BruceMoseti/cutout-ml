@@ -200,8 +200,8 @@ def _report(cases: list[dict[str, Any]], *, threads: int = 1) -> dict[str, Any]:
 SWEEP = [
     _case("eager-t1", runtime="pytorch-eager", threads=1, p50=46.7, sweep=True),
     _case("eager-t8", runtime="pytorch-eager", threads=8, p50=2854.0, sweep=True),
-    _case("onnx-t1", runtime="onnxruntime:CPU", threads=1, p50=20.0, sweep=True),
-    _case("onnx-t8", runtime="onnxruntime:CPU", threads=8, p50=10.0, sweep=True),
+    _case("onnx-t1", runtime="onnxruntime:CPU", threads=1, p50=20.0, sweep=True, model="m-onnx"),
+    _case("onnx-t8", runtime="onnxruntime:CPU", threads=8, p50=10.0, sweep=True, model="m-onnx"),
 ]
 
 
@@ -257,6 +257,35 @@ def test_the_scaling_block_explains_the_single_thread_default():
     assert "barrier" in block
 
 
+def test_the_sweep_reports_disagreement_with_the_row_it_duplicates():
+    """The sweep re-measures configurations the main table has, so it is a free repeat.
+
+    On a contended machine the two disagree, and a reader who found that themselves would
+    reasonably assume one number was wrong.
+    """
+    main = _case("main-eager", runtime="pytorch-eager", threads=1, p50=35.6, sweep=False)
+    block = thread_scaling_block(_report([main, *SWEEP]))
+    assert "Repeatability" in block
+    assert "46.7 ms here and 35.6 ms" in block
+    assert "1.3x apart" in block
+
+
+def test_agreement_within_tolerance_is_not_reported_as_a_discrepancy():
+    main = _case("main-eager", runtime="pytorch-eager", threads=1, p50=47.0, sweep=False)
+    block = thread_scaling_block(_report([main, *SWEEP]))
+    assert "Repeatability" not in block
+
+
+def test_the_repeatability_check_does_not_compare_eager_against_a_compiled_row():
+    """Same model and batch, different runtime: a compile speedup is not noise."""
+    compiled = _case(
+        "main-compiled", runtime="pytorch-compile:inductor", threads=1, p50=18.9, sweep=False
+    )
+    eager = _case("main-eager", runtime="pytorch-eager", threads=1, p50=47.0, sweep=False)
+    block = thread_scaling_block(_report([compiled, eager, *SWEEP]))
+    assert "Repeatability" not in block
+
+
 def test_a_run_without_a_sweep_says_so_rather_than_printing_an_empty_table():
     block = thread_scaling_block(
         _report([_case("p", runtime="pytorch-eager", threads=1, p50=1.0, sweep=False)])
@@ -282,3 +311,26 @@ def test_the_readme_warns_that_single_threaded_latency_is_pessimistic():
     )
     assert "single-threaded" in table
     assert "dedicated machine would beat them" in table
+
+
+def test_the_readme_quotes_the_inversion_from_the_run_rather_than_a_remembered_number():
+    """Every number in the README must trace to the artifact it was rendered from."""
+    table = readme_table(_report(SWEEP))
+    assert "46.7 ms on 1 thread and 2854.0 ms on 8" in table
+
+
+def test_a_run_with_no_sweep_gets_no_thread_numbers_instead_of_stale_ones():
+    table = readme_table(
+        _report([_case("p", runtime="pytorch-eager", threads=1, p50=1.0, sweep=False)])
+    )
+    assert "single-threaded" in table, "the caveat still applies"
+    assert " ms on 1 thread" not in table
+
+
+def test_the_contention_marker_follows_the_unit_rather_than_splitting_the_figure():
+    quiet = _case("q", runtime="pytorch-eager", threads=1, p50=10.0, sweep=False)
+    contended = _case("c", runtime="pytorch-eager", threads=1, p50=10.0, sweep=False)
+    contended["latency_trustworthy"] = False
+    table = readme_table(_report([quiet, contended]))
+    assert "10.0 ms †" in table
+    assert "10.0 † ms" not in table

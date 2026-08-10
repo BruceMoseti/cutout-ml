@@ -191,6 +191,58 @@ def contention_block(report: dict[str, Any]) -> str:
     return "\n".join(rows)
 
 
+def _sweep_consistency_notes(
+    report: dict[str, Any], sweep: list[dict[str, Any]], *, tolerance: float = 1.25
+) -> list[str]:
+    """Cross-check each sweep row against the main-table row it duplicates.
+
+    The sweep measures configurations the main table already contains, which makes it a
+    free repeatability check - and on a contended machine the two disagree. Publishing
+    the disagreement is the point: a reader who spots the same model at two different
+    latencies would otherwise reasonably conclude one of them is wrong, when in fact
+    both are real and the spread *is* the finding.
+    """
+
+    def key(case: dict[str, Any]) -> tuple[str, int, int, str]:
+        spec, lat = case["case"], case["latency"]
+        # The runtime label belongs in the key: `cutoutnet` at batch 1 appears both eager
+        # and Inductor-compiled, and comparing an eager sweep row against the compiled
+        # one would report a compile speedup as measurement noise.
+        return (
+            spec["model"],
+            spec["batch_size"],
+            lat.get("threads", 0),
+            _runtime_label(case, case.get("model_metadata")),
+        )
+
+    baseline: dict[tuple[str, int, int, str], float] = {}
+    for case in report["cases"]:
+        if case["status"] != "ok" or _is_thread_sweep(case) or not case.get("latency"):
+            continue
+        baseline[key(case)] = case["latency"]["p50_ms"]
+
+    notes: list[str] = []
+    for case in sweep:
+        spec, lat = case["case"], case["latency"]
+        other = baseline.get(key(case))
+        if not other or not lat["p50_ms"]:
+            continue
+        ratio = max(other, lat["p50_ms"]) / min(other, lat["p50_ms"])
+        if ratio < tolerance:
+            continue
+        notes.append(
+            f"- **Repeatability**: `{spec['model']}` at {lat['threads']} thread(s) measured "
+            f"{_fmt(lat['p50_ms'], 1)} ms here and {_fmt(other, 1)} ms in the table above - "
+            f"{ratio:.1f}x apart for the same configuration, minutes apart on the same "
+            "machine. Neither figure is wrong; the machine was not the same machine at the "
+            "two moments. This is what the `†` marks mean in practice, and it is the reason "
+            "no single number on this page should be quoted without them."
+        )
+    if notes:
+        notes.insert(0, "")
+    return notes
+
+
 def thread_scaling_block(report: dict[str, Any]) -> str:
     """Intra-op thread scaling, and why this suite is single-threaded by default.
 
@@ -259,6 +311,7 @@ def thread_scaling_block(report: dict[str, Any]) -> str:
             f"{worst['latency']['threads']} (`{worst['case']['name']}`). "
             f"That is, {verdict}.",
         ]
+    rows += _sweep_consistency_notes(report, sweep)
     rows += [
         "",
         "Where a runtime gets *slower* with more threads, the extra time is not arithmetic "
@@ -519,6 +572,42 @@ def dataset_block(report: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _thread_inversion_evidence(report: dict[str, Any]) -> str:
+    """The worst measured thread inversion, phrased as a clause, or nothing.
+
+    Read out of the report rather than written down, because the README's rule is that
+    every number in it traces to a committed JSON artifact. A run with no sweep gets no
+    numbers rather than last run's.
+    """
+    sweep = [
+        c
+        for c in report["cases"]
+        if c["status"] == "ok" and _is_thread_sweep(c) and c.get("latency")
+    ]
+    by_runtime: dict[str, list[dict[str, Any]]] = {}
+    for case in sweep:
+        by_runtime.setdefault(_runtime_label(case, case.get("model_metadata")), []).append(case)
+
+    worst: tuple[float, dict[str, Any], dict[str, Any]] | None = None
+    for cases in by_runtime.values():
+        single = next((c for c in cases if c["latency"]["threads"] == 1), None)
+        widest = max(cases, key=lambda c: c["latency"]["threads"])
+        if single is None or widest is single or not single["latency"]["p50_ms"]:
+            continue
+        ratio = widest["latency"]["p50_ms"] / single["latency"]["p50_ms"]
+        if ratio > 1 and (worst is None or ratio > worst[0]):
+            worst = (ratio, single, widest)
+
+    if worst is None:
+        return ""
+    _, single, widest = worst
+    return (
+        f" - the same weights measured {_fmt(single['latency']['p50_ms'], 1)} ms on "
+        f"{single['latency']['threads']} thread and "
+        f"{_fmt(widest['latency']['p50_ms'], 1)} ms on {widest['latency']['threads']}"
+    )
+
+
 def readme_table(report: dict[str, Any]) -> str:
     """Compact table for the README, plus the honesty line and a link to the JSON."""
     rows = [
@@ -535,12 +624,13 @@ def readme_table(report: dict[str, Any]) -> str:
         if case["case"]["batch_size"] != 1 or _is_thread_sweep(case):
             continue
         rows.append(
-            "| **{m}** | {rt} | {iou} | {mae} | {p50} ms | {ips} img/s | {size} |".format(
+            "| **{m}** | {rt} | {iou} | {mae} | {p50} ms{mark} | {ips} img/s | {size} |".format(
                 m=_display_name(case, meta),
                 rt=_runtime_label(case, meta),
                 iou=_fmt(acc.get("iou"), 4) if valid and acc else "n/a *",
                 mae=_fmt(acc.get("mae"), 4) if valid and acc else "n/a *",
-                p50=_fmt(lat.get("per_image_p50_ms"), 1) + _contention_mark(case),
+                p50=_fmt(lat.get("per_image_p50_ms"), 1),
+                mark=_contention_mark(case),
                 ips=_fmt(lat.get("throughput_images_per_second"), 1),
                 size=_mib(case.get("model_size_bytes")),
             )
@@ -562,9 +652,8 @@ def readme_table(report: dict[str, Any]) -> str:
             "**Latency is single-threaded**, so these are per-core costs and a dedicated "
             "machine would beat them. That is deliberate: this box runs other tenants, and "
             "multi-threaded timings on it are dominated by barrier waits rather than by the "
-            "model - the same weights measured 46.7 ms at one thread and 2854 ms at eight. "
-            "The measured curve, and the reasoning, are in "
-            "[docs/benchmarks.md](docs/benchmarks.md#thread-scaling).",
+            f"model{_thread_inversion_evidence(report)}. The measured curve, and the "
+            "reasoning, are in [docs/benchmarks.md](docs/benchmarks.md#thread-scaling).",
             "",
         ]
     rows += [
