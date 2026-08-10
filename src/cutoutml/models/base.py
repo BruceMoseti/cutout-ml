@@ -374,11 +374,21 @@ class TorchSegmentationModel(SegmentationModel):
     def build_module(self) -> torch.nn.Module:
         """Instantiate the architecture with random weights."""
 
+    def transform_state_dict(self, state: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        """Hook for adapters whose checkpoints use different parameter names.
+
+        A hook rather than an overridden :meth:`_load`: the loader also resolves the
+        device and the memory format, and an adapter that reimplemented it to add key
+        remapping silently lost those steps - which is exactly what happened to
+        :class:`~cutoutml.models.u2net.adapter.U2NetAdapter`.
+        """
+        return state
+
     def _load(self) -> None:
         module = self.build_module()
         if not self.random_init:
             path = self.resolve_weights_path()
-            state = load_state_dict(path, map_location="cpu")
+            state = self.transform_state_dict(load_state_dict(path, map_location="cpu"))
             missing, unexpected = module.load_state_dict(state, strict=False)
             if missing or unexpected:
                 log.warning(

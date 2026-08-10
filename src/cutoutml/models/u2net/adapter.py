@@ -127,33 +127,9 @@ class U2NetAdapter(TorchSegmentationModel):
     def build_module(self) -> nn.Module:
         return u2net_full() if self.variant == "full" else u2net_lite()
 
-    def _load(self) -> None:
-        """Load with official-checkpoint key remapping applied."""
-        module = self.build_module()
-        if not self.random_init:
-            path = self.resolve_weights_path()
-            from cutoutml.models.base import load_state_dict
-
-            raw = load_state_dict(path)
-            state = remap_official_state_dict(raw)
-            missing, unexpected = module.load_state_dict(state, strict=False)
-            if missing or unexpected:
-                log.warning(
-                    "u2net_state_dict_mismatch",
-                    missing=len(missing),
-                    unexpected=len(unexpected),
-                    missing_sample=list(missing)[:5],
-                )
-            self.weights_path = path
-        else:
-            log.warning(
-                "random_init_model",
-                model=self.name,
-                warning="weights are random; latency is valid, accuracy is NOT",
-            )
-        module.eval()
-        module.to(self.device)
-        self.module = module
+    def transform_state_dict(self, state: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        """Translate official parameter names onto this implementation's."""
+        return remap_official_state_dict(state)
 
     def default_weights_hint(self) -> str:
         fname = "u2net.pth" if self.variant == "full" else "u2netp.pth"
