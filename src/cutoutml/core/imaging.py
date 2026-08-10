@@ -233,9 +233,20 @@ def normalize(
     image: np.ndarray,
     mean: tuple[float, float, float] = IMAGENET_MEAN,
     std: tuple[float, float, float] = IMAGENET_STD,
+    *,
+    scale_by: float | None = None,
 ) -> np.ndarray:
-    """Scale ``uint8`` RGB to ``float32`` CHW and apply per-channel normalisation."""
+    """Scale ``uint8`` RGB to ``float32`` CHW and apply per-channel normalisation.
+
+    ``scale_by`` divides the ``[0, 1]`` image by an extra constant before the mean/std
+    step. It exists because U^2-Net's reference preprocessing normalises each image by
+    its own maximum intensity, and a model has to be fed what it was trained on: see
+    :meth:`cutoutml.models.base.SegmentationModel.intensity_divisor`. A divisor of
+    ``None`` or ``0`` is ignored, so the ordinary path is unaffected.
+    """
     arr = np.asarray(image, dtype=np.float32) / 255.0
+    if scale_by:
+        arr = arr / np.float32(scale_by)
     arr = (arr - np.asarray(mean, dtype=np.float32)) / np.asarray(std, dtype=np.float32)
     return np.ascontiguousarray(arr.transpose(2, 0, 1))
 

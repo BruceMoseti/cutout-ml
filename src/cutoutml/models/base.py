@@ -240,8 +240,12 @@ class SegmentationModel(abc.ABC):
         arrays: list[np.ndarray] = []
         infos: list[LetterboxInfo] = []
         for img in batch:
-            padded, info = letterbox(np.asarray(img), self.input_size)
-            arrays.append(normalize(padded, *self.normalization))
+            source = np.asarray(img)
+            # The divisor is computed from the source pixels, not the letterboxed
+            # canvas, so the constant padding cannot change it.
+            divisor = self.intensity_divisor(source)
+            padded, info = letterbox(source, self.input_size)
+            arrays.append(normalize(padded, *self.normalization, scale_by=divisor))
             infos.append(info)
         tensor = torch.from_numpy(np.stack(arrays, axis=0))
         return tensor, infos
@@ -252,6 +256,15 @@ class SegmentationModel(abc.ABC):
         from cutoutml.core.imaging import IMAGENET_MEAN, IMAGENET_STD
 
         return IMAGENET_MEAN, IMAGENET_STD
+
+    def intensity_divisor(self, image: np.ndarray) -> float | None:  # noqa: ARG002 - hook
+        """Extra per-image divisor applied to ``[0, 1]`` pixels before mean/std.
+
+        ``None`` - the default - means plain ImageNet normalisation. Override only to
+        reproduce a reference pipeline that does something else; see
+        :meth:`cutoutml.models.u2net.adapter.U2NetAdapter.intensity_divisor`.
+        """
+        return None
 
     # ---------------------------------------------------------------- prediction
 
@@ -265,7 +278,20 @@ class SegmentationModel(abc.ABC):
         infos: Sequence[LetterboxInfo],
     ) -> list[np.ndarray]:
         """Sigmoid + un-letterbox each logit map back to its original size."""
-        probs = torch.sigmoid(logits.detach().float())
+        return self.alpha_from_probabilities(torch.sigmoid(logits.detach().float()), infos)
+
+    def alpha_from_probabilities(
+        self,
+        probs: torch.Tensor,
+        infos: Sequence[LetterboxInfo],
+    ) -> list[np.ndarray]:
+        """Un-letterbox already-activated probabilities back to original resolution.
+
+        Split out from :meth:`postprocess` for backends whose artefact bakes the
+        sigmoid into the graph, which must not apply a second one - see
+        :class:`cutoutml.models.onnx_adapter.OnnxAdapter`.
+        """
+        probs = probs.detach().float()
         if probs.ndim == 4:
             probs = probs[:, 0]
         arr = probs.cpu().numpy()

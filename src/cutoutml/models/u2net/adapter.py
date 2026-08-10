@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import torch
 from torch import nn
 
@@ -186,16 +187,24 @@ class U2NetAdapter(TorchSegmentationModel):
 
     @property
     def normalization(self) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
-        """U^2-Net's own scheme: divide by max then ImageNet-normalise.
-
-        The reference preprocessing rescales to ``[0, 1]``, divides by the image
-        maximum and then applies ``mean=(0.485, 0.456, 0.406)`` with
-        ``std=(0.229, 0.224, 0.225)``. The max-division is a no-op for images that
-        contain a saturated pixel (almost all photographs), so plain ImageNet
-        normalisation is used and the difference is documented rather than
-        silently absorbed.
-        """
+        """U^2-Net's own mean/std, which differ from the usual ImageNet triple."""
         return ((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
+
+    def intensity_divisor(self, image: np.ndarray) -> float | None:
+        """Reproduce the reference pipeline's per-image max division.
+
+        Upstream rescales to ``[0, 1]`` and then divides by the image's own maximum
+        before the mean/std step, so an image whose brightest pixel is 128 is stretched
+        to full range. This is only a no-op for images containing a saturated pixel;
+        on the synthetic eval set fewer than half qualify, and skipping it feeds the
+        pretrained weights inputs they were never trained on. Measured cost of getting
+        this wrong on the eval set: several IoU points, which is more than the
+        difference between two of the models in the benchmark table.
+
+        A fully black image would divide by zero, so it falls back to no scaling.
+        """
+        peak = float(np.asarray(image).max())
+        return peak / 255.0 if peak > 0 else None
 
     def metadata(self) -> ModelMetadata:
         meta = super().metadata()
