@@ -53,7 +53,19 @@ So the licence chain is short and entirely inside this repository:
 | Training run records (`training/runs/*.json`) | MIT | Produced here; committed as provenance. |
 | Benchmark results (`benchmarks/results/*.json`) | MIT | Produced here. |
 | U²-Net / BiRefNet **reimplementations** | Apache-2.0 / MIT respectively | Independent implementations from published descriptions; the upstream licence is carried through out of respect for the origin. See [`docs/models.md`](models.md). |
-| Upstream U²-Net / BiRefNet **weights** | *not included* | Never committed, never downloaded implicitly. Anyone who fetches them inherits their terms. |
+| Upstream U²-Net / BiRefNet **weights** | *not included* | Never committed, never downloaded implicitly. Anyone who fetches them inherits their terms — including the terms of the data they were fitted to; see below. |
+
+One asymmetry deserves stating plainly, because it is the whole point of the exercise. The
+U²-Net weight files are Apache-2.0, and that covers the files. It does not cover **DUTS**,
+the research-use dataset their authors trained them on. A deployment that downloads
+`u2net.onnx` and serves predictions from it is therefore in a materially different
+position from one that serves CutoutNet, even though both artefacts end up in `models/`
+and both are nominally permissive. `python -m cutoutml.models.download_weights` prints the
+licence of what it is about to fetch for exactly this reason.
+
+This is also why the benchmark tables label the pretrained rows as out-of-domain rather
+than simply reporting them as the best available accuracy: those numbers come from a model
+whose provenance a commercial user has to evaluate separately.
 
 This is the direct payoff of the constraint recorded in
 [ADR-004](decisions/ADR-004-synthetic-dataset.md). The synthetic dataset was chosen
@@ -66,14 +78,24 @@ fine-tuned-from-a-download project can offer.
 ## Dependencies
 
 Read from installed package metadata rather than transcribed from memory, so it describes
-the versions actually resolved in this environment. Regenerate the list with
-`pip list --format=freeze` plus `importlib.metadata`; the summary below is accurate as of
-the versions pinned in `pyproject.toml`.
+the versions actually resolved in this environment. Regenerate it with:
+
+```bash
+.venv/bin/python -c 'from importlib.metadata import metadata as m; \
+import sys; [print(f"{p:24}", m(p)["Version"], m(p).get("License-Expression")) \
+for p in sys.argv[1:]]' torch numpy psycopg    # ...or whichever packages
+```
+
+Several wheels declare a **compound** expression, because they vendor code under other
+terms. Those are reproduced as-is below rather than flattened to the headline licence: the
+flattened version is what makes a reader think they have checked something when they have
+not. All of the compounds here are permissive.
 
 | Package | Licence | Notes |
 |---|---|---|
-| torch | BSD-3-Clause (wheel metadata declares Apache-2.0 for bundled components) | Permissive. |
-| numpy, scipy, psutil, uvicorn, httpx, celery, kombu, starlette | BSD-3-Clause | Permissive. |
+| torch | `Apache-2.0 AND Apache-2.0 WITH LLVM-exception AND BSD-2-Clause AND BSD-3-Clause AND BSL-1.0 AND MIT` | PyTorch's own code is BSD-3-Clause; the rest of the expression covers vendored components. All permissive. |
+| numpy | `BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0` | NumPy itself is BSD-3-Clause; the rest is vendored. |
+| scipy, psutil, uvicorn, httpx, celery, kombu, starlette | BSD-3-Clause | Permissive. |
 | pillow | MIT-CMU | Permissive. |
 | opencv-python-headless | Apache-2.0 | OpenCV relicensed from BSD-3-Clause at 4.5. |
 | fastapi, pydantic, pydantic-settings, sqlalchemy, alembic, redis, pyjwt, pyyaml, onnxruntime | MIT | Permissive. |

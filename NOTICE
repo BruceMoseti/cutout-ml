@@ -77,7 +77,11 @@ u2net.pt, u2netp.pt
             onnxruntime at conversion time.
   Licence:  Apache License 2.0. A format conversion does not change the licence of the
             weights, and each converted file carries its provenance and licence inside
-            it rather than in a sidecar that can be separated from the weights.
+            it, so the attribution cannot be separated from the bytes.
+  Record:   models/conversions/u2net.json and u2netp.json are committed copies of that
+            same provenance - source digest, parity figure, converter version - so the
+            claims above are checkable without the weights themselves being present.
+            The weight files are not committed; see docs/decisions/ADR-008.
 
 u2net.pth, u2netp.pth (optional alternative route)
   Content:  The authors' original PyTorch checkpoints.
@@ -101,8 +105,42 @@ BiRefNet checkpoints
   non-commercial artefact can arrive here by accident.
 
 ================================================================================
-4. Runtime and build dependencies
+4. Datasets
 ================================================================================
+
+No third-party dataset is committed to or required by this repository.
+
+Every checkpoint that THIS repository trains - the CutoutNet tiny/small/base variants,
+plus u2net-lite and birefnet if you choose to train them - is trained from scratch on
+images synthesised procedurally by
+src/cutoutml/datasets/procedural.py from a single integer seed. No photographs, no
+scraped images, no third-party annotations, and no pretrained initialisation: no ImageNet
+backbone, no distillation, no fine-tuning of a downloaded checkpoint. Neither torchvision
+nor timm is a dependency. Those weights are MIT with no upstream.
+
+The only dataset artefact committed here is datasets/synthetic-eval.json, which is a
+generator configuration plus a content fingerprint - not image data. It and the generator
+are MIT.
+
+The optional weights in section 2 are the exception, and it is the one worth reading
+carefully. The U^2-Net weights were trained by their authors on DUTS, which is
+distributed for research use. Their Apache-2.0 licence covers the weight files; it does
+not erase the terms of the data they were fitted to. So a deployment that downloads
+u2net.onnx and serves predictions from it is in a different position from one that serves
+CutoutNet, even though both files sit in the same directory. That distinction is the
+reason this repository trains its own models at all, and the reason
+`python -m cutoutml.models.download_weights` prints a licence before it fetches anything.
+
+Pointing the trainer at a real dataset (--dataset-root) inherits that dataset's terms in
+the same way. DUTS, DIS5K and AM-2k are all research-use. See docs/licensing.md.
+
+================================================================================
+5. Runtime and build dependencies
+================================================================================
+
+These are each project's own licence. Several wheels declare a compound SPDX expression
+because they vendor third-party code; docs/licensing.md reproduces those in full, along
+with the command that reads them from installed metadata.
 
 PyTorch                     BSD-3-Clause
 NumPy                       BSD-3-Clause
