@@ -1,5 +1,11 @@
 # CutoutML
 
+[![CI](https://img.shields.io/badge/CI-GitHub_Actions-2088FF?logo=githubactions&logoColor=white)](.github/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.12-3776ab?logo=python&logoColor=white)](pyproject.toml)
+[![PyTorch](https://img.shields.io/badge/PyTorch-%E2%89%A52.2_CPU_wheels-ee4c2c?logo=pytorch&logoColor=white)](pyproject.toml)
+[![Benchmarks](https://img.shields.io/badge/benchmarks-generated_from_results-informational)](docs/benchmarks.md)
+
 Image and video background removal served as a job queue: a FastAPI control plane, Celery
 workers that hold models in memory, a pluggable model registry spanning PyTorch, ONNX
 Runtime and TensorRT, and a benchmark harness that measures every claim in this README.
