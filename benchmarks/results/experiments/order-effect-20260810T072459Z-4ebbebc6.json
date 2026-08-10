@@ -1,0 +1,191 @@
+{
+  "arms": [
+    {
+      "load": {
+        "external_busy_cores": 0.008,
+        "load_average_15m": 2.2939453125,
+        "load_average_1m": 0.02978515625,
+        "load_average_5m": 0.4248046875,
+        "logical_cpus": 8,
+        "own_busy_cores": 0.0,
+        "quiet": true,
+        "quiet_threshold_cores": 0.5,
+        "sample_seconds": 1.0,
+        "summary": "quiet: 0.0 of 8 cores busy with external work (load average 0.0)",
+        "total_busy_cores": 0.008
+      },
+      "p50_ms": 31.0564,
+      "p95_ms": 31.1719,
+      "prelude": "none",
+      "quiet": true,
+      "repetitions": 30,
+      "stddev_ms": 0.101,
+      "threads": 1
+    },
+    {
+      "load": {
+        "external_busy_cores": 0.0,
+        "load_average_15m": 2.27197265625,
+        "load_average_1m": 0.24560546875,
+        "load_average_5m": 0.45361328125,
+        "logical_cpus": 8,
+        "own_busy_cores": 0.0,
+        "quiet": true,
+        "quiet_threshold_cores": 0.5,
+        "sample_seconds": 1.0,
+        "summary": "quiet: 0.0 of 8 cores busy with external work (load average 0.2)",
+        "total_busy_cores": 0.0
+      },
+      "p50_ms": 31.8452,
+      "p95_ms": 31.998,
+      "prelude": "classical",
+      "quiet": true,
+      "repetitions": 30,
+      "stddev_ms": 0.5249,
+      "threads": 1
+    },
+    {
+      "load": {
+        "external_busy_cores": 0.0,
+        "load_average_15m": 2.26513671875,
+        "load_average_1m": 0.30615234375,
+        "load_average_5m": 0.462890625,
+        "logical_cpus": 8,
+        "own_busy_cores": 0.0,
+        "quiet": true,
+        "quiet_threshold_cores": 0.5,
+        "sample_seconds": 1.0,
+        "summary": "quiet: 0.0 of 8 cores busy with external work (load average 0.3)",
+        "total_busy_cores": 0.0
+      },
+      "p50_ms": 32.0727,
+      "p95_ms": 32.1962,
+      "prelude": "cutoutnet-onnx",
+      "quiet": true,
+      "repetitions": 30,
+      "stddev_ms": 0.0816,
+      "threads": 1
+    },
+    {
+      "load": {
+        "external_busy_cores": 0.008,
+        "load_average_15m": 2.24462890625,
+        "load_average_1m": 0.46044921875,
+        "load_average_5m": 0.48974609375,
+        "logical_cpus": 8,
+        "own_busy_cores": 0.0,
+        "quiet": true,
+        "quiet_threshold_cores": 0.5,
+        "sample_seconds": 1.0,
+        "summary": "quiet: 0.0 of 8 cores busy with external work (load average 0.5)",
+        "total_busy_cores": 0.008
+      },
+      "p50_ms": 31.4819,
+      "p95_ms": 31.5904,
+      "prelude": "birefnet",
+      "quiet": true,
+      "repetitions": 30,
+      "stddev_ms": 0.0702,
+      "threads": 1
+    },
+    {
+      "load": {
+        "external_busy_cores": 0.0,
+        "load_average_15m": 2.22412109375,
+        "load_average_1m": 0.58056640625,
+        "load_average_5m": 0.515625,
+        "logical_cpus": 8,
+        "own_busy_cores": 0.0,
+        "quiet": true,
+        "quiet_threshold_cores": 0.5,
+        "sample_seconds": 1.0,
+        "summary": "quiet: 0.0 of 8 cores busy with external work (load average 0.6)",
+        "total_busy_cores": 0.0
+      },
+      "p50_ms": 19.8414,
+      "p95_ms": 20.0231,
+      "prelude": "u2netp",
+      "quiet": true,
+      "repetitions": 30,
+      "stddev_ms": 0.1531,
+      "threads": 1
+    }
+  ],
+  "arms_contended": 0,
+  "config": {
+    "accuracy_samples": 8,
+    "dataset_resolution": [
+      256,
+      256
+    ],
+    "dataset_seed": 20240817,
+    "dataset_split": "test",
+    "gc_between_cases": true,
+    "load_sample_seconds": 1.0,
+    "refine": {
+      "boundary_band": 6,
+      "clip_high": 0.98,
+      "clip_low": 0.02,
+      "feather_radius": 0,
+      "gamma": 1.0,
+      "guided_eps": 0.0001,
+      "guided_filter": false,
+      "guided_radius": 8,
+      "min_component_ratio": 0.0,
+      "morph_close": 0,
+      "morph_open": 0,
+      "soft_clip": true
+    },
+    "repetitions": 30,
+    "threads": 1,
+    "warmup": 3
+  },
+  "created_at": "2026-08-10T07:24:59Z",
+  "duration_seconds": 52.73,
+  "environment": {
+    "available_ram_bytes": 48096542720,
+    "cpu_count_logical": 8,
+    "cpu_count_physical": 8,
+    "cpu_max_mhz": null,
+    "cpu_model": "Intel(R) Xeon(R) Processor",
+    "cuda_version": null,
+    "cudnn_version": null,
+    "env_flags": {},
+    "git": {
+      "branch": "cursor/cutoutml-platform-3514",
+      "commit": "33263e89e93929fd69fbc89a5732f0c49fa91e96",
+      "describe": "33263e8-dirty",
+      "dirty": true,
+      "short_commit": "33263e89e939"
+    },
+    "gpu": "none",
+    "gpu_count": 0,
+    "hardware": "Intel(R) Xeon(R) Processor, 8 vCPU (8 physical cores), 47 GB RAM, no GPU (CPU-only)",
+    "library_versions": {
+      "celery": "5.6.3",
+      "fastapi": "0.141.1",
+      "numpy": "2.5.2",
+      "onnx": "1.22.0",
+      "onnxruntime": "1.28.0",
+      "opencv-python-headless": "5.0.0.93",
+      "pillow": "12.3.0",
+      "scipy": "1.18.0",
+      "sqlalchemy": "2.0.51",
+      "torch": "2.13.0+cpu"
+    },
+    "os_description": "Linux 6.12.94+ (x86_64)",
+    "python_version": "3.12.3",
+    "torch_threads": 8,
+    "total_ram_bytes": 50538512384
+  },
+  "experiment": "order_effect",
+  "question": "Does running another model before cutoutnet in the same process change cutoutnet's measured latency?",
+  "run_id": "20260810T072459Z-4ebbebc6",
+  "schema_version": 1,
+  "spread_among_quiet_arms": 1.616,
+  "target": {
+    "batch_size": 1,
+    "model": "cutoutnet",
+    "threads": 1
+  }
+}
