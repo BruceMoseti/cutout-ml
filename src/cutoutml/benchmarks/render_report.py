@@ -40,6 +40,16 @@ def _mib(value: int | None) -> str:
     return f"{value / (1024 * 1024):.1f} MiB"
 
 
+#: Appended to every timing cell measured while another workload had the CPU. A marker on
+#: the cell rather than a note under the table, because a reader scanning for a latency
+#: figure will not read the note.
+CONTENDED_MARK = " †"
+
+
+def _contention_mark(case: dict[str, Any]) -> str:
+    return "" if case.get("latency_trustworthy", True) else CONTENDED_MARK
+
+
 def _display_name(case: dict[str, Any], metadata: dict[str, Any] | None) -> str:
     name = case["case"]["model"]
     parts = [name]
@@ -99,7 +109,7 @@ def main_table(report: dict[str, Any]) -> str:
                 mae=mae,
                 fbeta=fbeta,
                 bf1=bf1,
-                p50=_fmt(lat.get("per_image_p50_ms"), 2),
+                p50=_fmt(lat.get("per_image_p50_ms"), 2) + _contention_mark(case),
                 p95=_fmt(lat.get("p95_ms", 0) / max(1, lat.get("batch_size", 1)), 2),
                 ips=_fmt(lat.get("throughput_images_per_second"), 1),
                 rss=_mib(lat.get("peak_rss_bytes")),
@@ -109,9 +119,64 @@ def main_table(report: dict[str, Any]) -> str:
     rows.append("")
     rows.append(
         "`n/a *` = accuracy not measurable for this row: the network ran with **random "
-        "weights** so that latency could still be benchmarked without downloadable "
-        "checkpoints. Latency in those rows is real; accuracy is meaningless."
+        "weights** so that latency could still be benchmarked without a loadable "
+        "checkpoint. Latency in those rows is real; accuracy is meaningless."
     )
+    if any(not c.get("latency_trustworthy", True) for c in report["cases"]):
+        rows.append("")
+        rows.append(
+            "`†` = measured while another workload held the CPU, so the figure is an upper "
+            "bound rather than this model's cost. Accuracy columns are unaffected: they are "
+            "deterministic in the weights and the eval set. See "
+            "[Machine contention](#machine-contention)."
+        )
+    return "\n".join(rows)
+
+
+def contention_block(report: dict[str, Any]) -> str:
+    """Per-case external CPU demand, and what it does and does not invalidate."""
+    cases = [c for c in report["cases"] if c.get("load")]
+    if not cases:
+        return "_This run predates contention measurement; its timings carry no load evidence._"
+
+    contended = [c for c in cases if not c["load"]["quiet"]]
+    peak = max(c["load"]["external_busy_cores"] for c in cases)
+    cores = cases[0]["load"]["logical_cpus"]
+
+    if not contended:
+        return (
+            f"Every case was measured on a quiet machine: external demand never exceeded "
+            f"{peak:.1f} of {cores} cores. The latency figures are this hardware's."
+        )
+
+    rows = [
+        f"**{len(contended)} of {len(cases)} timed cases were measured under contention.** "
+        f"External demand peaked at {peak:.1f} of {cores} cores - that is, another workload "
+        "was using most of the machine while these timings were taken.",
+        "",
+        "The latency, throughput and peak-memory columns for those rows are therefore upper "
+        "bounds on this hardware's cost, not measurements of it. They are published with the "
+        "evidence attached rather than omitted, and marked `†` wherever they appear. Nothing "
+        "here is corrected or extrapolated: a scaled-down number would be a guess.",
+        "",
+        "Accuracy is unaffected and is not qualified. IoU, MAE, F-measure and boundary F1 are "
+        "deterministic functions of the weights and the eval set, and come out bit-identical "
+        "whatever else the scheduler was doing.",
+        "",
+        "| Case | External cores busy | Load avg (1m) | Latency trustworthy |",
+        "|---|---|---|---|",
+    ]
+    for case in cases:
+        load = case["load"]
+        rows.append(
+            "| `{name}` | {external:.1f} / {cores} | {avg} | {ok} |".format(
+                name=case["case"]["name"],
+                external=load["external_busy_cores"],
+                cores=load["logical_cpus"],
+                avg=_fmt(load.get("load_average_1m"), 1),
+                ok="yes" if load["quiet"] else "**no**",
+            )
+        )
     return "\n".join(rows)
 
 
@@ -356,13 +421,14 @@ def readme_table(report: dict[str, Any]) -> str:
                 rt=_runtime_label(case, meta),
                 iou=_fmt(acc.get("iou"), 4) if valid and acc else "n/a *",
                 mae=_fmt(acc.get("mae"), 4) if valid and acc else "n/a *",
-                p50=_fmt(lat.get("per_image_p50_ms"), 1),
+                p50=_fmt(lat.get("per_image_p50_ms"), 1) + _contention_mark(case),
                 ips=_fmt(lat.get("throughput_images_per_second"), 1),
                 size=_mib(case.get("model_size_bytes")),
             )
         )
 
     env = report["environment"]
+    summary = report.get("summary", {})
     rows += [
         "",
         f"**Benchmark environment**: {env['hardware']}. "
@@ -370,13 +436,27 @@ def readme_table(report: dict[str, Any]) -> str:
         f"Every number above was measured by `benchmarks/run.py` on this machine - "
         f"none are copied from a paper or estimated.",
         "",
-        "`n/a *` = the network ran with **random weights** (pretrained checkpoints are "
-        "not downloadable in this environment), so its latency is real but accuracy is "
-        "not measurable. See [docs/benchmarks.md](docs/benchmarks.md).",
+        "`n/a *` = the network ran with **random weights** (no checkpoint exists that this "
+        "architecture can load), so its latency is real but accuracy is not measurable.",
+    ]
+    contended = int(summary.get("cases_measured_under_contention") or 0)
+    if contended:
+        peak = summary.get("peak_external_busy_cores")
+        rows += [
+            "",
+            f"`†` = **measured under CPU contention.** A concurrent workload was using up to "
+            f"{_fmt(peak, 1)} of this machine's {env['cpu_count_logical']} cores while "
+            f"{contended} of the timed cases ran, so those latency and throughput figures are "
+            "upper bounds rather than this hardware's cost. They are published with the "
+            "per-case load evidence rather than quietly cleaned up. **The accuracy columns "
+            "are unaffected** - they are deterministic in the weights and the eval set.",
+        ]
+    rows += [
         "",
         f"Source data: [`benchmarks/results/{report['run_id']}.json`]"
         f"(benchmarks/results/{report['run_id']}.json) - "
-        f"regenerate with `make bench`.",
+        f"regenerate with `make bench`. Full methodology and the per-case load table: "
+        "[docs/benchmarks.md](docs/benchmarks.md).",
     ]
     return "\n".join(rows)
 
@@ -402,6 +482,10 @@ def render_benchmarks_doc(report: dict[str, Any], methodology: str) -> str:
             "## Results",
             "",
             main_table(report),
+            "",
+            "## Machine contention",
+            "",
+            contention_block(report),
             "",
             "## Runtime comparison",
             "",
@@ -465,6 +549,12 @@ from:
    the number to look at first: if it is large relative to p50, the machine was not
    quiet and no other figure in the row should be trusted.
 
+   Leaving that inference to the reader is not good enough, though - a wide stddev is
+   equally consistent with "this model has variable cost" and "someone else had the
+   CPU". So the harness also *measures* how busy the machine was, per case, and marks
+   the rows where the answer makes their timings meaningless. See
+   [Machine contention](#machine-contention) for this run's numbers.
+
 4. **Batch size changes the meaning of "latency".** At batch 1 you measure
    *responsiveness*; at batch 8 you measure *throughput*, and per-image latency
    improves while the latency any individual request experiences gets worse. Both are
@@ -480,6 +570,12 @@ from:
 - **Peak RSS**: process resident set size after the run, from `psutil`. It includes the
   interpreter and loaded libraries (~250 MB for PyTorch), so compare *differences*
   between rows, not absolute values.
+- **Machine contention**: busy cores attributable to processes outside this process
+  tree, sampled immediately before each timing loop. Measured as *external* demand
+  rather than as a raw load average so that the harness's own consumption does not count
+  against it, and in cores rather than as a load-average figure so the threshold means
+  the same thing on a 4-core and a 64-core machine. A case is treated as quiet below
+  half a busy core.
 - **Peak VRAM**: `torch.cuda.max_memory_allocated`, or `null` off-GPU.
 - **Cold start**: wall clock of `model.load()` - weight loading, device transfer and
   graph/session construction. This is what a scale-from-zero request pays.
@@ -542,9 +638,20 @@ and is the number a learned model has to beat to be worth its weights.
 - **No GPU was available.** Every measurement is CPU-only. The fp16/TensorRT code paths
   are implemented and type-checked but unmeasured here; rows for them are absent rather
   than estimated.
-- **Random-weight rows measure architecture cost, not quality.** U^2-Net and BiRefNet
-  need pretrained checkpoints that could not be downloaded, so their rows show real
-  latency with `n/a` accuracy.
+- **The machine was shared.** See [Machine contention](#machine-contention) for exactly
+  which rows this affects and by how much. Timings on a contended row are upper bounds;
+  accuracy is unaffected.
+- **Random-weight rows measure architecture cost, not quality.** Only BiRefNet is in that
+  position: its official checkpoints target a Swin backbone whose shapes do not match this
+  repository's reimplementation, so no download would help and its row shows real latency
+  with `n/a` accuracy. U^2-Net's published weights *are* loaded here - see
+  [docs/models.md](models.md) for the route.
+- **The pretrained models are evaluated out of domain.** U^2-Net was trained on DUTS,
+  a real-photograph saliency dataset, and is scored here against a synthetic eval set. It
+  is expected to place below a small model trained in-repo on that eval set's own
+  distribution, and it does. That ordering is a statement about the eval set, not about
+  the models: read it as evidence that these synthetic numbers do not transfer to
+  photographs, in either direction.
 """
 
 
@@ -628,6 +735,7 @@ if __name__ == "__main__":  # pragma: no cover
 __all__ = [
     "METHODOLOGY",
     "checkpoint_table",
+    "contention_block",
     "main",
     "readme_table",
     "render",
