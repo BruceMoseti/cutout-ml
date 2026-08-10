@@ -60,7 +60,11 @@ function caseResult(overrides: Partial<BenchmarkCaseResult> = {}): BenchmarkCase
   };
 }
 
-function report(cases: BenchmarkCaseResult[], config: Record<string, unknown> = {}): BenchmarkReport {
+function report(
+  cases: BenchmarkCaseResult[],
+  config: Record<string, unknown> = {},
+  environment: Record<string, unknown> = {},
+): BenchmarkReport {
   return {
     schema_version: 2,
     run_id: '20260101T000000Z-abcd1234',
@@ -73,6 +77,7 @@ function report(cases: BenchmarkCaseResult[], config: Record<string, unknown> = 
       libraries: { torch: '2.13.0+cpu' },
       git_commit: 'abc1234567',
       git_dirty: false,
+      ...environment,
     },
     config: { accuracy_samples: 64, repetitions: 20, warmup: 3, threads: 1, ...config },
     dataset: { dataset_id: 'synthetic-v1.0.0' },
@@ -84,6 +89,25 @@ function report(cases: BenchmarkCaseResult[], config: Record<string, unknown> = 
 describe('BenchmarkDashboard', () => {
   beforeEach(() => {
     benchmarks.mockReset();
+  });
+
+  it('reads provenance out of the shape the harness actually writes', async () => {
+    // The fixture above uses `libraries` and `git_commit`, which the harness has never
+    // emitted -- it writes `library_versions` and a nested `git` object. The dashboard read
+    // the fixture's spelling, so every real report rendered `torch ?` and `Commit ?` while
+    // this suite stayed green. Pinned against the real shape so it cannot drift back.
+    benchmarks.mockResolvedValue({
+      items: [
+        report([caseResult()], {}, {
+          library_versions: { torch: '2.13.0+cpu' },
+          git: { short_commit: 'ba1bbda1c71c', commit: 'ba1bbda1c71c53bb', dirty: false },
+        }),
+      ],
+    });
+    render(<BenchmarkDashboard />);
+
+    await waitFor(() => expect(screen.getByText('2.13.0+cpu')).toBeInTheDocument());
+    expect(screen.getByText('ba1bbda1c7')).toBeInTheDocument();
   });
 
   it('shows the measured row with its thread count', async () => {

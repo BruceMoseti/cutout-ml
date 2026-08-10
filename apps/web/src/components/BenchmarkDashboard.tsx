@@ -77,6 +77,12 @@ export function BenchmarkDashboard() {
   }
 
   const env = report.environment as Record<string, unknown>;
+  const formatCommit = (environment: Record<string, unknown>): string => {
+    const git = environment.git as Record<string, unknown> | undefined;
+    const sha = String(git?.short_commit ?? git?.commit ?? environment.git_commit ?? '?');
+    const dirty = git?.dirty ?? environment.git_dirty;
+    return sha.slice(0, 10) + (dirty ? ' (dirty)' : '');
+  };
   const dataset = report.dataset as Record<string, unknown>;
   const config = report.config as Record<string, unknown>;
 
@@ -89,8 +95,20 @@ export function BenchmarkDashboard() {
       'Threads',
       threads === undefined ? 'not pinned' : threads === 0 ? 'one per core' : `${threads} per runtime`,
     ],
-    ['torch', String((env.libraries as Record<string, string> | undefined)?.torch ?? '?')],
-    ['Commit', String(env.git_commit ?? '?').slice(0, 10) + (env.git_dirty ? ' (dirty)' : '')],
+    // `library_versions` and `git`, the shapes the harness writes. The flat `libraries` /
+    // `git_commit` spellings read here before matched nothing in a real report, so the two
+    // fields the provenance block exists for -- which code, which torch -- rendered as `?`
+    // while every neighbouring field looked fine. The older spellings are still accepted
+    // because the archived reports under benchmarks/results/ are never rewritten.
+    [
+      'torch',
+      String(
+        (env.library_versions as Record<string, string> | undefined)?.torch ??
+          (env.libraries as Record<string, string> | undefined)?.torch ??
+          '?',
+      ),
+    ],
+    ['Commit', formatCommit(env)],
     ['Measured', formatTimestamp(report.created_at)],
     ['Dataset', String(dataset.dataset_id ?? dataset.name ?? 'synthetic')],
     ['Eval samples', String(config.accuracy_samples ?? '?')],

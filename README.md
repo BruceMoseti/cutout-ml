@@ -10,6 +10,21 @@ Image and video background removal served as a job queue: a FastAPI control plan
 workers that hold models in memory, a pluggable model registry spanning PyTorch, ONNX
 Runtime and TensorRT, and a benchmark harness that measures every claim in this README.
 
+![The studio, comparing a cutout against its original](docs/media/studio.png)
+
+<sub>A real job: the image went to the API, a Celery worker ran CutoutNet on it, and the slider
+compares the source against the alpha result. The stats panel is the job's own record — device,
+precision, resolution, wall clock, and how much of the frame the alpha actually covers. Captured
+from a running stack by `scripts/screenshot.mjs`, on a deliberately awkward subject: a feathered
+rim over a striped background, because a hard-edged shape on white flatters every segmenter.</sub>
+
+![The benchmark dashboard](docs/media/benchmarks.png)
+
+<sub>Every row is read from a JSON artifact in `benchmarks/results/`, with the provenance that
+makes it meaningful attached above it — CPU, thread count, dataset fingerprint, sample count,
+repetitions, the commit and the torch build. No number in this project is typed by hand, in the
+UI or in this README.</sub>
+
 ## Why I built it
 
 I wanted to know what it actually takes to put a segmentation model behind an HTTP API and
