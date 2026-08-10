@@ -1,0 +1,243 @@
+# CutoutML local stack: api, three workers, postgres, redis, minio and the web console.
+#
+# Quick start:
+#     cp .env.example .env
+#     docker compose up -d --build
+#     docker compose run --rm migrate      # one-shot, then exits
+#     open http://localhost:3000
+#
+# NOTE ON VERIFICATION: the schema of this file is validated (`docker compose config`
+# under the standalone Compose v2 binary, which needs no daemon) but the stack was never
+# brought up: the authoring machine had no Docker daemon. Every service was instead
+# exercised directly on the host against Postgres 16, Redis 7 and ffmpeg 6.1, so the
+# application wiring is verified and the *container* wiring is not. The `docker` job in
+# .github/workflows/ci.yml is what actually builds these images.
+#
+# Design notes that are easy to get wrong:
+#
+#  * Migrations are a separate one-shot service, not an API entrypoint step. Running them
+#    from the API means N replicas racing to migrate the same database on every deploy.
+#  * The three workers are separate services rather than replicas of one, because they
+#    need different concurrency and different thread counts (see ADR-002). Compose
+#    `deploy.replicas` cannot vary either per replica.
+#  * shm_size is raised on anything that loads data with DataLoader workers. Docker
+#    defaults /dev/shm to 64 MB and PyTorch passes every worker tensor through it, so the
+#    default kills training a few steps in with "No space left on device" -- which looks
+#    like a disk problem and is an IPC one. cutoutml.training.train.safe_num_workers
+#    detects it and degrades, but raising the limit is the actual fix.
+
+name: cutoutml
+
+x-app-env: &app-env
+  CUTOUTML_ENVIRONMENT: ${CUTOUTML_ENVIRONMENT:-dev}
+  CUTOUTML_LOG_FORMAT: json
+  CUTOUTML_LOG_LEVEL: ${CUTOUTML_LOG_LEVEL:-INFO}
+  CUTOUTML_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-dev}:${POSTGRES_PASSWORD:-dev}@postgres:5432/${POSTGRES_DB:-cutoutml}
+  CUTOUTML_REDIS_URL: redis://redis:6379/0
+  CUTOUTML_JWT_SECRET: ${CUTOUTML_JWT_SECRET:?set CUTOUTML_JWT_SECRET in .env}
+  CUTOUTML_STORAGE_BACKEND: ${CUTOUTML_STORAGE_BACKEND:-local}
+  CUTOUTML_STORAGE_ROOT: /data/storage
+  CUTOUTML_MODEL_WEIGHTS_DIR: /app/models
+  CUTOUTML_S3_BUCKET: ${CUTOUTML_S3_BUCKET:-cutoutml}
+  CUTOUTML_S3_ENDPOINT_URL: http://minio:9000
+  CUTOUTML_S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-cutoutml}
+  CUTOUTML_S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-cutoutml-dev-secret}
+  CUTOUTML_DEFAULT_MODEL: ${CUTOUTML_DEFAULT_MODEL:-cutoutnet}
+  CUTOUTML_DEVICE: ${CUTOUTML_DEVICE:-auto}
+
+x-app-build: &app-build
+  context: .
+  dockerfile: docker/api.Dockerfile
+
+x-depends: &app-depends
+  postgres:
+    condition: service_healthy
+  redis:
+    condition: service_healthy
+
+services:
+  # ----------------------------------------------------------------- datastores
+  postgres:
+    # Plain Postgres is sufficient. The schema uses core types plus jsonb and uuid, and
+    # no migration creates an extension, so there is nothing to gain from a fatter image.
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-dev}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dev}
+      POSTGRES_DB: ${POSTGRES_DB:-cutoutml}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      # -U and -d are both required: without them pg_isready checks the `root` user
+      # against the `root` database and reports the server up before it is usable.
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dev} -d ${POSTGRES_DB:-cutoutml}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    # appendonly keeps queued jobs across a restart. Celery acks late, so an in-flight
+    # job survives a worker crash; without AOF it would not survive a broker restart.
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1"]
+    volumes:
+      - redis-data:/data
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+  minio:
+    # Only needed with CUTOUTML_STORAGE_BACKEND=s3. Harmless when unused, and having it
+    # present is what makes the S3 code path testable locally.
+    image: minio/minio:latest
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-cutoutml}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-cutoutml-dev-secret}
+    volumes:
+      - minio-data:/data
+    ports:
+      - "${MINIO_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------- migrations
+  migrate:
+    build: *app-build
+    environment: *app-env
+    depends_on: *app-depends
+    # Own service so schema changes apply exactly once per deploy instead of being
+    # raced by every API replica on boot.
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+
+  # ----------------------------------------------------------------------- api
+  api:
+    build: *app-build
+    environment: *app-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      - storage-data:/data/storage
+      # Checkpoints are not in the image (they are not committed either -- see
+      # docs/models.md). Mounted read-only so a compromised API cannot rewrite weights.
+      - ./models:/app/models:ro
+      - ./benchmarks/results:/app/benchmarks/results:ro
+    restart: unless-stopped
+
+  # ------------------------------------------------------------------- workers
+  worker-cpu:
+    build:
+      context: .
+      dockerfile: docker/worker.Dockerfile
+    environment:
+      <<: *app-env
+      CUTOUTML_TORCH_NUM_THREADS: 2
+    depends_on: *app-depends
+    command:
+      ["celery", "-A", "services.inference.app.celery_app:celery", "worker",
+       "-Q", "cpu", "-c", "${WORKER_CPU_CONCURRENCY:-2}", "-n", "cpu@%h", "--loglevel=info"]
+    volumes:
+      - storage-data:/data/storage
+      - ./models:/app/models:ro
+    shm_size: 1gb
+    restart: unless-stopped
+
+  worker-image-gpu:
+    build:
+      context: .
+      dockerfile: docker/worker.Dockerfile
+      args:
+        # Override both to build a real GPU worker; the defaults produce a CPU image
+        # that consumes the GPU queues correctly but runs the models on CPU.
+        BASE_IMAGE: ${GPU_BASE_IMAGE:-python:3.12-slim-bookworm}
+        TORCH_INDEX_URL: ${TORCH_INDEX_URL:-https://download.pytorch.org/whl/cpu}
+    environment:
+      <<: *app-env
+      CUTOUTML_TORCH_NUM_THREADS: 2
+    depends_on: *app-depends
+    command:
+      ["celery", "-A", "services.inference.app.celery_app:celery", "worker",
+       "-Q", "image-gpu", "-c", "${WORKER_IMAGE_CONCURRENCY:-2}", "-n", "image@%h",
+       "--loglevel=info"]
+    volumes:
+      - storage-data:/data/storage
+      - ./models:/app/models:ro
+    shm_size: 1gb
+    restart: unless-stopped
+    # Uncomment on a machine with the NVIDIA container toolkit installed.
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  worker-video-gpu:
+    build:
+      context: .
+      dockerfile: docker/worker.Dockerfile
+      args:
+        BASE_IMAGE: ${GPU_BASE_IMAGE:-python:3.12-slim-bookworm}
+        TORCH_INDEX_URL: ${TORCH_INDEX_URL:-https://download.pytorch.org/whl/cpu}
+    environment:
+      <<: *app-env
+      # Concurrency 1, so this worker gets the whole box for one video: intra-op
+      # parallelism beats running four videos at a quarter speed each, and a 4K clip at
+      # concurrency 4 is how a GPU worker OOMs.
+      CUTOUTML_TORCH_NUM_THREADS: ${WORKER_VIDEO_THREADS:-4}
+    depends_on: *app-depends
+    command:
+      ["celery", "-A", "services.inference.app.celery_app:celery", "worker",
+       "-Q", "video-gpu", "-c", "1", "-n", "video@%h", "--loglevel=info"]
+    volumes:
+      - storage-data:/data/storage
+      - ./models:/app/models:ro
+    shm_size: 2gb
+    restart: unless-stopped
+
+  # ----------------------------------------------------------------------- web
+  web:
+    build:
+      context: .
+      dockerfile: docker/web.Dockerfile
+      args:
+        # Left empty on purpose: the browser then calls the web origin and Next proxies
+        # /api to the API service, so there is no CORS preflight and no cross-origin
+        # token handling. Set it only for a split deployment.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-}
+    environment:
+      CUTOUTML_API_URL: http://api:8000
+    depends_on:
+      api:
+        condition: service_started
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  redis-data:
+  minio-data:
+  storage-data:
