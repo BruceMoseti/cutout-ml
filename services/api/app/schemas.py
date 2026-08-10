@@ -146,8 +146,13 @@ class RefineOptions(BaseModel):
         return RefineConfig(**self.model_dump())
 
 
+def _default_image_outputs() -> list[ImageOutput]:
+    """The two outputs a caller almost always wants: the cutout and the raw matte."""
+    return ["transparent_png", "mask_png"]
+
+
 class ProcessImageOptions(BaseModel):
-    outputs: list[ImageOutput] = Field(default_factory=lambda: ["transparent_png", "mask_png"])
+    outputs: list[ImageOutput] = Field(default_factory=_default_image_outputs)
     background_color: tuple[int, int, int] = (255, 255, 255)
     background_asset_id: uuid.UUID | None = None
     blur_sigma: float = Field(default=12.0, ge=0.0, le=100.0)

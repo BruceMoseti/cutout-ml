@@ -27,10 +27,16 @@ integer seed.
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 
 import cv2
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
+
+MakerFn = Callable[[np.random.Generator, "tuple[int, int]"], np.ndarray]
+"""Every maker below takes ``(rng, (h, w))`` and returns a float32 array. Naming the
+shape means the registry dicts stay callable to a type checker instead of collapsing to
+``object`` across their heterogeneous keyword-only parameters."""
 
 SUPERSAMPLE = 4
 """Rasterisation factor for anti-aliased masks. 4x gives 17 distinct alpha levels
@@ -305,7 +311,7 @@ def layered_mask(rng: np.random.Generator, size: tuple[int, int]) -> np.ndarray:
     return out
 
 
-SHAPE_MAKERS = {
+SHAPE_MAKERS: dict[str, MakerFn] = {
     "blob": blob_mask,
     "superellipse": superellipse_mask,
     "star": star_polygon_mask,
@@ -388,7 +394,7 @@ def bg_noise_photo(rng: np.random.Generator, size: tuple[int, int]) -> np.ndarra
     return np.clip(base + grain, 0.0, 255.0)
 
 
-BACKGROUND_MAKERS = {
+BACKGROUND_MAKERS: dict[str, MakerFn] = {
     "linear_gradient": bg_linear_gradient,
     "radial_gradient": bg_radial_gradient,
     "fbm": bg_fbm,

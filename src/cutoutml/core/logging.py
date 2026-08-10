@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import sys
+from collections.abc import MutableMapping
 from contextvars import ContextVar
 from typing import Any
 
@@ -19,7 +20,9 @@ _request_id: ContextVar[str | None] = ContextVar("cutoutml_request_id", default=
 _configured = False
 
 
-def _inject_request_id(_logger: Any, _method: str, event_dict: dict[str, Any]) -> dict[str, Any]:
+def _inject_request_id(
+    _logger: Any, _method: str, event_dict: MutableMapping[str, Any]
+) -> MutableMapping[str, Any]:
     rid = _request_id.get()
     if rid is not None:
         event_dict.setdefault("request_id", rid)

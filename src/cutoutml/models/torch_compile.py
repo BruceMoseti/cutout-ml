@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import dataclasses
 import time
-from typing import Any
+from typing import Any, cast
 
 import torch
 
@@ -107,7 +107,10 @@ def compile_module(
         warm_seconds=round(warm, 3),
     )
     log.info("torch_compile_ok", mode=mode, backend=backend, warm_seconds=outcome.warm_seconds)
-    return compiled, outcome
+    # `torch.compile` is typed as returning a bare callable, but applied to a Module it
+    # returns an OptimizedModule that subclasses nn.Module. Callers rely on `.eval()` and
+    # parameter iteration, so the module type is the honest one to advertise.
+    return cast("torch.nn.Module", compiled), outcome
 
 
 def not_attempted() -> CompileOutcome:

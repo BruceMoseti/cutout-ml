@@ -513,27 +513,39 @@ def _percentile(sorted_values: list[float], pct: float) -> float:
 
 
 def _summarise(results: Sequence[CaseResult]) -> dict[str, Any]:
+    """Headline figures for the report.
+
+    ``best_iou`` only ever considers cases with ``accuracy_valid`` set. A randomly
+    initialised model produces a real IoU number that means nothing, and letting one win
+    "best" would put a fabricated accuracy at the top of the report.
+
+    The scores are paired with their results up front rather than read inside a ``key=``
+    lambda, so the "accuracy is present" check and the use of that accuracy are the same
+    expression instead of two that have to be kept in agreement.
+    """
     ok = [r for r in results if r.status == "ok"]
-    with_accuracy = [r for r in ok if r.accuracy_valid and r.accuracy]
-    best = (
-        max(with_accuracy, key=lambda r: r.accuracy["iou"], default=None) if with_accuracy else None
-    )
-    fastest = min(
-        (r for r in ok if r.latency),
-        key=lambda r: r.latency.per_image_p50_ms,  # type: ignore[union-attr]
-        default=None,
-    )
+
+    scored: list[tuple[CaseResult, float]] = [
+        (r, float(r.accuracy["iou"]))
+        for r in ok
+        if r.accuracy_valid and r.accuracy and "iou" in r.accuracy
+    ]
+    timed: list[tuple[CaseResult, float]] = [
+        (r, r.latency.per_image_p50_ms) for r in ok if r.latency is not None
+    ]
+
+    best = max(scored, key=lambda pair: pair[1], default=None)
+    fastest = min(timed, key=lambda pair: pair[1], default=None)
+
     return {
         "cases_total": len(results),
         "cases_ok": len(ok),
         "cases_skipped": sum(1 for r in results if r.status == "skipped"),
         "cases_failed": sum(1 for r in results if r.status == "failed"),
-        "best_iou_case": best.case.name if best else None,
-        "best_iou": round(best.accuracy["iou"], 5) if best else None,
-        "fastest_case": fastest.case.name if fastest else None,
-        "fastest_per_image_p50_ms": (
-            round(fastest.latency.per_image_p50_ms, 4) if fastest and fastest.latency else None
-        ),
+        "best_iou_case": best[0].case.name if best else None,
+        "best_iou": round(best[1], 5) if best else None,
+        "fastest_case": fastest[0].case.name if fastest else None,
+        "fastest_per_image_p50_ms": round(fastest[1], 4) if fastest else None,
     }
 
 

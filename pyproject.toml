@@ -63,6 +63,7 @@ dev = [
   "ruff>=0.4",
   "mypy>=1.9",
   "types-pyyaml",
+  "types-psutil",
   "tabulate>=0.9",
 ]
 
@@ -138,13 +139,32 @@ warn_return_any = false
 show_error_codes = true
 plugins = []
 
+# Third-party packages that ship no type information. Listing them explicitly, rather
+# than setting a global ignore_missing_imports, keeps a genuinely missing first-party
+# import an error.
 [[tool.mypy.overrides]]
 module = [
-  "cv2.*", "onnx.*", "onnxruntime.*", "tensorrt.*", "pycuda.*", "polygraphy.*",
-  "celery.*", "bcrypt.*", "prometheus_client.*", "scipy.*", "pgvector.*",
-  "boto3.*", "botocore.*", "tabulate.*", "yaml.*", "alembic.*",
+  "onnx.*", "onnxruntime.*", "prometheus_client.*", "scipy.*",
+  "boto3.*", "botocore.*", "tabulate.*",
+  # celery and kombu ship no py.typed marker.
+  "celery.*", "kombu.*",
+  # TensorRT and its CUDA bindings cannot be installed on a machine without a GPU, so
+  # these are unresolvable anywhere this project is developed or tested. The adapter is
+  # written to degrade when the import fails; see docs/decisions/ADR-005-onnx-tensorrt.md.
+  "tensorrt.*", "pycuda.*", "cuda.*", "cuda.bindings.*",
 ]
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# opencv-python's bundled stubs type every array parameter as a union of integer and
+# floating dtypes and every return as that same union. A correctly-dtyped call to
+# grabCut therefore matches no overload, and `dst = cv2.GaussianBlur(src_f32, ...)`
+# is reported as narrowing float32 to a union. Silencing it call-by-call would mean a
+# dozen `type: ignore`s that describe the stubs rather than the code, so cv2 is treated
+# as untyped instead. Array shapes and dtypes are asserted in tests/test_imaging.py.
+module = ["cv2", "cv2.*"]
+follow_imports = "skip"
+follow_imports_for_stubs = true
 
 [[tool.mypy.overrides]]
 # Matching this pattern is why tests/__init__.py exists; see the note there.

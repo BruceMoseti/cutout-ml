@@ -77,9 +77,10 @@ def decode_image(
     palette/16-bit/CMYK inputs more predictably. ``max_pixels`` guards against
     decompression-bomb uploads.
     """
-    with Image.open(io.BytesIO(data)) as img:
+    with Image.open(io.BytesIO(data)) as opened:
+        img: Image.Image = opened
         if apply_exif:
-            img = ImageOps.exif_transpose(img) or img
+            img = ImageOps.exif_transpose(opened) or opened
         if max_pixels is not None and img.width * img.height > max_pixels:
             raise ValueError(
                 f"image has {img.width * img.height} pixels which exceeds the limit of {max_pixels}"

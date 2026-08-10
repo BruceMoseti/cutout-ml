@@ -16,9 +16,10 @@ import contextlib
 import dataclasses
 import platform
 from collections.abc import Iterator
-from typing import Literal
+from typing import Literal, cast
 
 import torch
+from torch import nn
 
 from cutoutml.core.logging import get_logger
 
@@ -205,6 +206,19 @@ def configure_threads(num_threads: int) -> None:
     """
     if num_threads and num_threads > 0:
         torch.set_num_threads(num_threads)
+
+
+def to_memory_format[ModuleT: nn.Module](
+    module: ModuleT, memory_format: torch.memory_format
+) -> ModuleT:
+    """Relayout ``module``'s parameters and buffers, preserving its static type.
+
+    ``nn.Module.to`` accepts ``memory_format`` at runtime but torch's stubs only declare
+    the device/dtype/tensor overloads, so every call site would otherwise need its own
+    ``type: ignore``. Returning ``ModuleT`` rather than ``nn.Module`` also keeps the
+    concrete subclass visible to callers, which ``to`` itself does not.
+    """
+    return cast("ModuleT", module.to(memory_format=memory_format))  # type: ignore[call-overload]
 
 
 def synchronize(device: torch.device) -> None:

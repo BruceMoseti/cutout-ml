@@ -174,7 +174,12 @@ class RefinementHead(nn.Module):
         self.entry = ConvBN(5, width, 3)
         self.body = nn.Sequential(*[SeparableConv(width, width) for _ in range(depth)])
         self.delta = nn.Conv2d(width, 1, 3, padding=1)
+        # Zero-initialised so the refinement head starts as an exact identity: the first
+        # forward pass returns the coarse logits untouched, and the head has to earn any
+        # change it makes. Starting it random would corrupt an already-reasonable coarse
+        # mask for the first few hundred steps.
         nn.init.zeros_(self.delta.weight)
+        assert self.delta.bias is not None  # Conv2d(bias=True) by default
         nn.init.zeros_(self.delta.bias)
 
     def forward(
@@ -246,6 +251,7 @@ class CutoutNet(nn.Module):
                 nn.init.zeros_(m.bias)
         # Re-zero the identity-init delta, which the loop above overwrote.
         nn.init.zeros_(self.refine.delta.weight)
+        assert self.refine.delta.bias is not None
         nn.init.zeros_(self.refine.delta.bias)
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, ...]:

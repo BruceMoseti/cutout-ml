@@ -19,6 +19,7 @@ path or a connection URL, and none of that belongs in an HTTP response.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request, status
@@ -104,7 +105,9 @@ def _json(
     message: str,
     *,
     details: dict[str, Any] | None = None,
-    headers: dict[str, str] | None = None,
+    # Mapping rather than dict: Starlette's HTTPException.headers is typed as a Mapping,
+    # and these handlers pass it straight through.
+    headers: Mapping[str, str] | None = None,
 ) -> JSONResponse:
     return JSONResponse(
         status_code=status_code,

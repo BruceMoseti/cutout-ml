@@ -41,6 +41,7 @@ from cutoutml.core.devices import (
     describe_device,
     resolve_device,
     resolve_precision,
+    to_memory_format,
 )
 from cutoutml.core.imaging import LetterboxInfo, letterbox, normalize, unletterbox_mask
 from cutoutml.core.logging import get_logger
@@ -327,7 +328,7 @@ class TorchSegmentationModel(SegmentationModel):
         module.eval()
         module.to(self.device)
         if self.use_channels_last:
-            module = module.to(memory_format=torch.channels_last)
+            module = to_memory_format(module, torch.channels_last)
         self.module = module
 
     def resolve_weights_path(self) -> Path:
@@ -414,7 +415,7 @@ class TorchSegmentationModel(SegmentationModel):
         # optimise away.
         dummy = torch.zeros(1, 3, h, w, dtype=torch.float32, device=self.device).contiguous()
         dynamic_axes = {"input": {0: "batch"}, "logits": {0: "batch"}} if dynamic_batch else None
-        wrapper = _SingleOutputWrapper(self.module).to(memory_format=torch.contiguous_format)
+        wrapper = to_memory_format(_SingleOutputWrapper(self.module), torch.contiguous_format)
         wrapper.eval()
         with torch.inference_mode():
             torch.onnx.export(

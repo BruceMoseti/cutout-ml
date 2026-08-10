@@ -54,6 +54,7 @@ from cutoutml.core.devices import (
     describe_device,
     resolve_device,
     resolve_precision,
+    to_memory_format,
 )
 from cutoutml.core.imaging import normalize
 from cutoutml.core.logging import configure_logging, get_logger
@@ -298,7 +299,7 @@ def train(cfg: TrainConfig) -> dict[str, Any]:
         # depthwise convolutions and a slower fallback for NCHW. Same layout is used
         # at inference (see TorchSegmentationModel.use_channels_last) so training and
         # serving exercise identical kernels.
-        model = model.to(memory_format=torch.channels_last)
+        model = to_memory_format(model, torch.channels_last)
     param_count = sum(p.numel() for p in model.parameters())
 
     # No weight decay on BatchNorm parameters or biases: decaying a BN scale toward

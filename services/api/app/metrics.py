@@ -16,16 +16,17 @@ Metric design notes:
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 from prometheus_client import (
+    CONTENT_TYPE_LATEST,
     CollectorRegistry,
     Counter,
     Gauge,
     Histogram,
     generate_latest,
 )
-from prometheus_client.openmetrics.exposition import CONTENT_TYPE_LATEST
 
 # Latency buckets in seconds. Deliberately dense in the 20-500 ms band where image
 # requests live, with a long tail for video jobs.
@@ -126,7 +127,14 @@ class Metrics:
         )
 
     def render(self) -> tuple[bytes, str]:
-        """Serialised metrics and the content type for the HTTP response."""
+        """Serialised metrics and the content type for the HTTP response.
+
+        Both halves come from the same exposition module on purpose. ``generate_latest``
+        emits the Prometheus text format, which has no ``# EOF`` terminator; pairing it
+        with the ``application/openmetrics-text`` content type would advertise a format
+        the body does not satisfy, and a scraper that honours the header rejects the
+        scrape. Every Prometheus-compatible scraper accepts the text format.
+        """
         return (generate_latest(self.registry), CONTENT_TYPE_LATEST)
 
 
@@ -148,11 +156,16 @@ def reset_metrics() -> Metrics:
     return _METRICS
 
 
-def route_template(scope: dict[str, Any]) -> str:
+def route_template(scope: Mapping[str, Any]) -> str:
     """The templated path for a request, or ``"unmatched"``.
 
     Starlette puts the matched ``route`` in the ASGI scope; reading ``path_format``
-    from it is what keeps label cardinality bounded.
+    from it is what keeps label cardinality bounded. Using the raw path instead would
+    create one Prometheus time series per asset id, which is how a metrics endpoint grows
+    to hundreds of megabytes.
+
+    Takes a ``Mapping`` because an ASGI scope is typed as ``MutableMapping`` and this only
+    reads from it.
     """
     route = scope.get("route")
     path_format = getattr(route, "path_format", None) or getattr(route, "path", None)
