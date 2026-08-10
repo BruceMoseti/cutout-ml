@@ -70,15 +70,21 @@ def default_cases(
         BenchmarkCase(
             model="cutoutnet-onnx", precision="fp32", device="cpu", label="cutoutnet-onnx-cpu"
         ),
-        # --- architectures whose pretrained weights are not downloadable here and
-        #     which are too expensive to train on this box: latency only.
+        # --- the authors' published U^2-Net weights, under both runtimes. The PyTorch and
+        #     ONNX rows execute the same tensors (parity 1.4e-7), so any accuracy
+        #     difference between them would be a bug in this repository and any latency
+        #     difference is attributable to the runtime alone. Both graphs fix their batch
+        #     axis at 1, so there are no batch-scaling rows for them.
+        BenchmarkCase(model="u2netp", precision="fp32", device="cpu", label="u2netp-pretrained"),
         BenchmarkCase(
-            model="u2net",
-            precision="fp32",
-            device="cpu",
-            random_init=True,
-            label="u2net-full-randominit",
+            model="u2netp-onnx", precision="fp32", device="cpu", label="u2netp-pretrained-onnx"
         ),
+        BenchmarkCase(model="u2net", precision="fp32", device="cpu", label="u2net-pretrained"),
+        BenchmarkCase(
+            model="u2net-onnx", precision="fp32", device="cpu", label="u2net-pretrained-onnx"
+        ),
+        # --- an architecture whose pretrained weights are not obtainable here and which
+        #     is too expensive to train on this box: latency only.
         BenchmarkCase(
             model="birefnet",
             precision="fp32",
