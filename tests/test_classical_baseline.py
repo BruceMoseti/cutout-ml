@@ -22,7 +22,6 @@ from cutoutml.benchmarks.harness import (
     BenchmarkConfig,
     BenchmarkHarness,
 )
-from cutoutml.models.base import WeightsUnavailableError
 from cutoutml.models.classical.baseline import grabcut_mask
 
 #: The published `cutoutnet-fp32` IoU. Pinned so that a change to the eval set, the
@@ -120,10 +119,11 @@ def test_a_learned_model_scores_exactly_what_it_published():
     """The fix must not have touched anything that does not draw from OpenCV's RNG."""
     harness = _harness(repetitions=1, samples=64)
 
-    try:
-        result = harness.run_case(BenchmarkCase(model="cutoutnet", label="cutoutnet-fp32"))
-    except WeightsUnavailableError:  # pragma: no cover - weights ship with the repo
-        pytest.skip("cutoutnet weights unavailable in this environment")
+    result = harness.run_case(BenchmarkCase(model="cutoutnet", label="cutoutnet-fp32"))
+    if result.status == "skipped":
+        # The harness turns a missing checkpoint into a skipped case rather than raising,
+        # so this has to read the status: CutoutNet is trained here, not committed.
+        pytest.skip(f"cutoutnet weights unavailable: {result.error}")
 
     assert result.status == "ok", result.error
     assert result.accuracy is not None
