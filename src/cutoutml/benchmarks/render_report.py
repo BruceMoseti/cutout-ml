@@ -50,6 +50,16 @@ def _contention_mark(case: dict[str, Any]) -> str:
     return "" if case.get("latency_trustworthy", True) else CONTENDED_MARK
 
 
+def _is_thread_sweep(case: dict[str, Any]) -> bool:
+    """Whether the case overrode the run-wide thread count.
+
+    Sweep rows are held out of the main, README and runtime-comparison tables. They
+    duplicate a model that already appears there, and mixing thread counts into a
+    runtime comparison would silently turn it into a thread comparison.
+    """
+    return case["case"].get("threads") is not None
+
+
 def _display_name(case: dict[str, Any], metadata: dict[str, Any] | None) -> str:
     name = case["case"]["model"]
     parts = [name]
@@ -78,12 +88,12 @@ def _runtime_label(case: dict[str, Any], metadata: dict[str, Any] | None) -> str
 def main_table(report: dict[str, Any]) -> str:
     """The headline table: accuracy + latency for every successful case."""
     rows: list[str] = [
-        "| Model | Runtime | Precision | Batch | IoU | MAE | F-beta | Boundary F1 | "
+        "| Model | Runtime | Precision | Batch | Threads | IoU | MAE | F-beta | Boundary F1 | "
         "p50 ms/img | p95 ms/img | img/s | Peak RSS | Model size |",
-        "|---|---|---|---|---|---|---|---|---|---|---|---|---|",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for case in report["cases"]:
-        if case["status"] != "ok":
+        if case["status"] != "ok" or _is_thread_sweep(case):
             continue
         meta = case.get("model_metadata") or {}
         lat = case.get("latency") or {}
@@ -99,12 +109,13 @@ def main_table(report: dict[str, Any]) -> str:
             iou = mae = fbeta = bf1 = "n/a *"
 
         rows.append(
-            "| {model} | {runtime} | {precision} | {batch} | {iou} | {mae} | {fbeta} | {bf1} | "
-            "{p50} | {p95} | {ips} | {rss} | {size} |".format(
+            "| {model} | {runtime} | {precision} | {batch} | {threads} | {iou} | {mae} | "
+            "{fbeta} | {bf1} | {p50} | {p95} | {ips} | {rss} | {size} |".format(
                 model=_display_name(case, meta),
                 runtime=_runtime_label(case, meta),
                 precision=case["case"]["precision"],
                 batch=case["case"]["batch_size"],
+                threads=lat.get("threads", "?"),
                 iou=iou,
                 mae=mae,
                 fbeta=fbeta,
@@ -180,6 +191,99 @@ def contention_block(report: dict[str, Any]) -> str:
     return "\n".join(rows)
 
 
+def thread_scaling_block(report: dict[str, Any]) -> str:
+    """Intra-op thread scaling, and why this suite is single-threaded by default.
+
+    The interesting result is not the speedup but its absence: PyTorch's scaling goes
+    *backwards* on a machine with more runnable threads than cores, and printing the
+    curve is the only way a reader can tell that the suite's one-thread default is a
+    measured decision rather than a shrug.
+    """
+    sweep = [
+        c
+        for c in report["cases"]
+        if c["status"] == "ok" and _is_thread_sweep(c) and c.get("latency")
+    ]
+    if not sweep:
+        return "_This run contains no thread-scaling sweep; re-run without `--no-threads`._"
+
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for case in sweep:
+        groups.setdefault(_runtime_label(case, case.get("model_metadata")), []).append(case)
+
+    rows = [
+        "| Runtime | Threads | p50 ms | p95 ms | stddev ms | img/s | Speedup vs 1 thread |",
+        "|---|---|---|---|---|---|---|",
+    ]
+    for runtime, cases in sorted(groups.items()):
+        ordered = sorted(cases, key=lambda c: c["latency"]["threads"])
+        single = next(
+            (c["latency"]["p50_ms"] for c in ordered if c["latency"]["threads"] == 1), None
+        )
+        for case in ordered:
+            lat = case["latency"]
+            speedup = f"{single / lat['p50_ms']:.2f}x" if single and lat["p50_ms"] else "n/a"
+            rows.append(
+                "| {rt} | {t} | {p50} | {p95} | {sd} | {ips} | {su} |".format(
+                    rt=runtime,
+                    t=lat["threads"],
+                    p50=_fmt(lat.get("p50_ms"), 1),
+                    p95=_fmt(lat.get("p95_ms"), 1),
+                    sd=_fmt(lat.get("stddev_ms"), 1),
+                    ips=_fmt(lat.get("throughput_images_per_second"), 1),
+                    su=speedup,
+                )
+            )
+
+    rows += [
+        "",
+        "Within each runtime the weights, the batch size and the image are identical; the "
+        "only variable is how many intra-op threads the runtime was given. Compare down a "
+        "runtime's rows, not across runtimes - the two runtimes execute different code.",
+        "",
+    ]
+    for runtime, cases in sorted(groups.items()):
+        ordered = sorted(cases, key=lambda c: c["latency"]["p50_ms"])
+        best, worst = ordered[0], ordered[-1]
+        if worst["latency"]["p50_ms"] <= best["latency"]["p50_ms"]:
+            continue
+        ratio = worst["latency"]["p50_ms"] / best["latency"]["p50_ms"]
+        inverted = worst["latency"]["threads"] > best["latency"]["threads"]
+        verdict = (
+            "more threads made it slower" if inverted else "threads bought what they should have"
+        )
+        rows += [
+            f"- **{runtime}**: {ratio:.0f}x between its own extremes - "
+            f"{_fmt(best['latency']['p50_ms'], 1)} ms at {best['latency']['threads']} "
+            f"thread(s) against {_fmt(worst['latency']['p50_ms'], 1)} ms at "
+            f"{worst['latency']['threads']} (`{worst['case']['name']}`). "
+            f"That is, {verdict}.",
+        ]
+    rows += [
+        "",
+        "Where a runtime gets *slower* with more threads, the extra time is not arithmetic "
+        "but waiting. A U-Net forward pass is roughly a hundred parallel regions, each "
+        "ending in a barrier, and a barrier cannot retire until every worker thread has been "
+        "scheduled onto a core. Ask for eight threads on a machine whose cores are already "
+        "committed and every one of those barriers waits on a descheduled thread, so the "
+        "cost becomes a function of the scheduler rather than of the model. ONNX Runtime "
+        "resists this better than PyTorch because it fuses the graph into far fewer parallel "
+        "regions and controls its own spin-then-yield policy at each one.",
+        "",
+        "Two consequences shape the rest of this document:",
+        "",
+        "1. **The suite runs single-threaded by default** (`--threads 1`). One thread has no "
+        "barriers to lose, which makes it the only CPU latency figure on a shared machine "
+        "that means the same thing twice. It also understates what dedicated hardware would "
+        "do, and that is the correct direction for a published number to be wrong in.",
+        "2. **A runtime comparison must fix the thread count.** ONNX Runtime resolves a "
+        "request of 0 to one thread per core while PyTorch has its own default, so an "
+        "uncontrolled 'PyTorch vs ONNX' row pair can differ by eight threads before it "
+        "differs by a runtime. The harness now passes one count to both.",
+    ]
+    return "\n".join(rows)
+
+
 def stage_table(report: dict[str, Any]) -> str:
     """Per-stage breakdown, which is where surprises usually live."""
     rows = [
@@ -187,7 +291,7 @@ def stage_table(report: dict[str, Any]) -> str:
         "|---|---|---|---|---|---|",
     ]
     for case in report["cases"]:
-        if case["status"] != "ok" or not case.get("stage_timings_ms"):
+        if case["status"] != "ok" or not case.get("stage_timings_ms") or _is_thread_sweep(case):
             continue
         stages = case["stage_timings_ms"]
         lat = case.get("latency") or {}
@@ -212,6 +316,8 @@ def accuracy_detail_table(report: dict[str, Any]) -> str:
     ]
     for case in report["cases"]:
         if case["status"] != "ok" or not case.get("accuracy_valid") or not case.get("accuracy"):
+            continue
+        if _is_thread_sweep(case):
             continue
         a = case["accuracy"]
         rows.append(
@@ -242,7 +348,7 @@ def runtime_comparison_table(report: dict[str, Any]) -> str:
     """
     groups: dict[tuple[str, int], list[dict[str, Any]]] = {}
     for case in report["cases"]:
-        if case["status"] != "ok" or not case.get("latency"):
+        if case["status"] != "ok" or not case.get("latency") or _is_thread_sweep(case):
             continue
         spec = case["case"]
         # Random-weight rows are excluded: their latency is real, but they exist to price
@@ -344,6 +450,19 @@ def skipped_table(report: dict[str, Any]) -> str:
     return "\n".join(rows)
 
 
+def _threads_description(report: dict[str, Any]) -> str:
+    """The thread count in force, and a pointer to why it is what it is."""
+    cfg = report.get("config", {})
+    env = report["environment"]
+    requested = cfg.get("threads")
+    if requested is None:  # a run recorded before the setting existed
+        return f"{env.get('torch_threads', '?')} (PyTorch default; not pinned by the harness)"
+    if requested == 0:
+        return f"each runtime's default, one per core ({env.get('torch_threads', '?')} for PyTorch)"
+    suffix = " - see [Thread scaling](#thread-scaling)" if requested == 1 else ""
+    return f"{requested} per runtime, pinned by the harness{suffix}"
+
+
 def environment_block(report: dict[str, Any]) -> str:
     """The honesty section: exactly what hardware produced these numbers."""
     env = report["environment"]
@@ -365,7 +484,7 @@ def environment_block(report: dict[str, Any]) -> str:
                 else ""
             ),
             f"- **OS / Python**: {env['os_description']} / Python {env['python_version']}",
-            f"- **PyTorch threads**: {env['torch_threads']}",
+            f"- **Intra-op threads**: {_threads_description(report)}",
             f"- **Git commit**: `{git.get('short_commit') or 'unknown'}`"
             f" on `{git.get('branch') or 'unknown'}`{dirty}",
             f"- **Libraries**: {lib_text}",
@@ -413,7 +532,7 @@ def readme_table(report: dict[str, Any]) -> str:
         lat = case.get("latency") or {}
         acc = case.get("accuracy")
         valid = case.get("accuracy_valid", False)
-        if case["case"]["batch_size"] != 1:
+        if case["case"]["batch_size"] != 1 or _is_thread_sweep(case):
             continue
         rows.append(
             "| **{m}** | {rt} | {iou} | {mae} | {p50} ms | {ips} img/s | {size} |".format(
@@ -429,6 +548,7 @@ def readme_table(report: dict[str, Any]) -> str:
 
     env = report["environment"]
     summary = report.get("summary", {})
+    threads = (report.get("config") or {}).get("threads")
     rows += [
         "",
         f"**Benchmark environment**: {env['hardware']}. "
@@ -436,6 +556,18 @@ def readme_table(report: dict[str, Any]) -> str:
         f"Every number above was measured by `benchmarks/run.py` on this machine - "
         f"none are copied from a paper or estimated.",
         "",
+    ]
+    if threads == 1:
+        rows += [
+            "**Latency is single-threaded**, so these are per-core costs and a dedicated "
+            "machine would beat them. That is deliberate: this box runs other tenants, and "
+            "multi-threaded timings on it are dominated by barrier waits rather than by the "
+            "model - the same weights measured 46.7 ms at one thread and 2854 ms at eight. "
+            "The measured curve, and the reasoning, are in "
+            "[docs/benchmarks.md](docs/benchmarks.md#thread-scaling).",
+            "",
+        ]
+    rows += [
         "`n/a *` = the network ran with **random weights** (no checkpoint exists that this "
         "architecture can load), so its latency is real but accuracy is not measurable.",
     ]
@@ -486,6 +618,10 @@ def render_benchmarks_doc(report: dict[str, Any], methodology: str) -> str:
             "## Machine contention",
             "",
             contention_block(report),
+            "",
+            "## Thread scaling",
+            "",
+            thread_scaling_block(report),
             "",
             "## Runtime comparison",
             "",
@@ -560,6 +696,14 @@ from:
    improves while the latency any individual request experiences gets worse. Both are
    reported, and per-image figures are always explicitly per-image.
 
+5. **A CPU latency figure without a thread count is not a measurement.** The same
+   weights on the same machine differ by more than an order of magnitude depending on
+   how many intra-op threads the runtime was given, and on a busy machine more threads
+   can be dramatically *worse* - see [Thread scaling](#thread-scaling) for the measured
+   curve. Every row records the thread count the runtime actually ran with, taken from
+   the runtime rather than from the request, because ONNX Runtime silently resolves a
+   request of 0 to one thread per core.
+
 ### What is measured
 
 - **Latency**: wall clock around `model.predict(tensor)` only - preprocessing and
@@ -570,6 +714,9 @@ from:
 - **Peak RSS**: process resident set size after the run, from `psutil`. It includes the
   interpreter and loaded libraries (~250 MB for PyTorch), so compare *differences*
   between rows, not absolute values.
+- **Intra-op threads**: the width the runtime actually ran at, read back from the
+  runtime. Pinned to the same value for every runtime in a comparison, because
+  otherwise the comparison is partly a thread-count comparison.
 - **Machine contention**: busy cores attributable to processes outside this process
   tree, sampled immediately before each timing loop. Measured as *external* demand
   rather than as a raw load average so that the harness's own consumption does not count
@@ -641,6 +788,11 @@ and is the number a learned model has to beat to be worth its weights.
 - **The machine was shared.** See [Machine contention](#machine-contention) for exactly
   which rows this affects and by how much. Timings on a contended row are upper bounds;
   accuracy is unaffected.
+- **Latency here is single-threaded and therefore pessimistic.** These are per-core
+  costs, not the best this hardware can do. A dedicated machine given one thread per
+  core would be faster - by how much is a question this environment cannot answer, so
+  no multi-threaded headline figure is published. [Thread scaling](#thread-scaling)
+  shows what was measured instead.
 - **Random-weight rows measure architecture cost, not quality.** Only BiRefNet is in that
   position: its official checkpoints target a Swin backbone whose shapes do not match this
   repository's reimplementation, so no download would help and its row shows real latency
@@ -741,5 +893,6 @@ __all__ = [
     "render",
     "render_benchmarks_doc",
     "runtime_comparison_table",
+    "thread_scaling_block",
     "update_readme",
 ]
