@@ -1,0 +1,86 @@
+{
+  "config": {
+    "backgrounds": [
+      "linear_gradient",
+      "radial_gradient",
+      "fbm",
+      "stripes",
+      "blurred_field",
+      "noise_photo"
+    ],
+    "blur_prob": 0.35,
+    "blur_sigma": [
+      0.4,
+      1.8
+    ],
+    "brightness_jitter": 0.22,
+    "color_collision_prob": 0.3,
+    "contrast_jitter": 0.25,
+    "distractor_prob": 0.45,
+    "jpeg_prob": 0.35,
+    "jpeg_quality": [
+      35,
+      92
+    ],
+    "max_alpha_coverage": 0.75,
+    "max_distractors": 2,
+    "max_objects": 2,
+    "min_alpha_coverage": 0.03,
+    "noise_prob": 0.4,
+    "noise_sigma": [
+      2.0,
+      12.0
+    ],
+    "resolution": [
+      256,
+      256
+    ],
+    "rotation_degrees": 30.0,
+    "scale_range": [
+      0.62,
+      1.18
+    ],
+    "shapes": [
+      "blob",
+      "superellipse",
+      "star",
+      "rounded_rect",
+      "glyph",
+      "layered"
+    ],
+    "soft_edge_prob": 0.5,
+    "soft_edge_sigma": [
+      0.6,
+      2.4
+    ],
+    "translation_frac": 0.27
+  },
+  "dataset_id": "synthetic-v1.0.0-seed20240817",
+  "fingerprint": "24b52899998fa9920c972c194876e3f60a34872affb7f78db0b545443a5c61e2",
+  "fingerprint_samples": 8,
+  "generator": "cutoutml.datasets.synthetic",
+  "generator_version": "1.0.0",
+  "master_seed": 20240817,
+  "notes": "Procedurally generated. Accuracy measured on this set is NOT comparable to published DUTS/DIS5K numbers; use cutoutml.datasets.real for those.",
+  "resolution": [
+    256,
+    256
+  ],
+  "splits": [
+    {
+      "count": 64,
+      "name": "test",
+      "seed_offset": 2000000
+    },
+    {
+      "count": 2048,
+      "name": "train",
+      "seed_offset": 0
+    },
+    {
+      "count": 192,
+      "name": "val",
+      "seed_offset": 1000000
+    }
+  ]
+}
