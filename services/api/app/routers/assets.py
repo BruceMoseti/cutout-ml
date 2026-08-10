@@ -710,10 +710,18 @@ def build_result_response(
     outputs: list[ResultOutput] = []
     for item in manifest.get("outputs", []):
         key = str(item.get("storage_key", ""))
+        api_route = f"/v1/jobs/{job.id}/outputs/{item.get('kind')}"
         try:
             url = storage.presign_download(key, expires_in=settings.presign_expiry_seconds)
         except Exception:  # noqa: BLE001 - fall back to the authenticated API route
-            url = f"/v1/jobs/{job.id}/outputs/{item.get('kind')}"
+            url = api_route
+        # A presigned URL is only fetchable if it addresses the store directly, which means
+        # absolute. The local backend returns a relative `/assets/local/...` path that nothing
+        # serves -- no route, no static mount -- so every result link was a 404 for anyone not
+        # running against S3 or MinIO, which includes anyone following the README. Falling back
+        # to the authenticated route keeps the response honest and the bytes reachable.
+        if not url.startswith(("http://", "https://")):
+            url = api_route
         outputs.append(
             ResultOutput(
                 kind=str(item.get("kind", "output")),

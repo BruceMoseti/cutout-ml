@@ -1027,6 +1027,30 @@ def test_the_asset_result_shortcut_returns_the_newest_succeeded_job(
     assert response.json()["status"] == "succeeded"
 
 
+def test_every_result_url_can_actually_be_fetched(client: Any, auth: dict[str, str]):
+    """The local backend presigns to `/assets/local/...`, which no route and no static mount
+    serves, so every result link was a 404 for anyone not running against S3 or MinIO -- which
+    is anyone following the README. A URL in a response is a promise; this checks it is kept
+    rather than checking the field is merely populated."""
+    asset = upload_image(client, auth)
+    client.post(
+        f"/v1/assets/{asset['id']}/process",
+        headers=auth,
+        json={"model": "trivial-center", "image": {"outputs": ["mask_png"]}},
+    )
+
+    outputs = client.get(f"/v1/assets/{asset['id']}/result", headers=auth).json()["outputs"]
+
+    assert outputs
+    for output in outputs:
+        url = output["url"]
+        if url.startswith(("http://", "https://")):
+            continue  # An object-store presign; fetching it would leave the application.
+        fetched = client.get(url, headers=auth)
+        assert fetched.status_code == 200, f"{output['kind']} url {url} is not fetchable"
+        assert fetched.content
+
+
 def test_cancelling_a_terminal_job_is_a_conflict(client: Any, auth: dict[str, str]):
     job_id = insert_queued_job(client, auth)
 
