@@ -26,6 +26,7 @@ from cutoutml.benchmarks.render_report import (
     _contention_mark,
     _sweep_consistency_notes,
     _was_contended,
+    checkpoint_table,
     contention_block,
     main_table,
     methodology_block,
@@ -386,6 +387,76 @@ def test_quick_keeps_its_report_out_of_the_archive_and_off_the_docs():
         run.build_parser().parse_args(["--quick", "--output-dir", "x"])
     )
     assert explicit.output_dir == Path("x")
+
+
+# --------------------------------------------------------- checkpoint provenance
+
+
+def with_weights(
+    entry: dict[str, Any], *, filename: str, digest: str, source: str | None = None
+) -> dict[str, Any]:
+    """Attach the weights fields the harness records for a case that loaded a checkpoint."""
+    entry["model_metadata"] = {
+        **entry["model_metadata"],
+        "weights_path": f"/repo/models/{filename}",
+        "weights_sha256": digest,
+        "weights_source_sha256": source,
+    }
+    return entry
+
+
+def test_a_run_of_only_locally_trained_checkpoints_claims_no_conversion():
+    """The column has to be absent, not empty. A "Converted from" heading over a table where
+    nothing was converted invites the reader to look for a provenance chain that does not
+    exist."""
+    table = checkpoint_table(
+        report_of(with_weights(case(), filename="cutoutnet-small.pt", digest="a" * 64))
+    )
+
+    assert "Converted from" not in table
+    assert "`aaaaaaaaaaaaaaaa...`" in table
+
+
+def test_a_converted_checkpoint_publishes_the_digest_that_survives_re_conversion():
+    """The point of the column. `weights_sha256` names one conversion of the source artefact
+    and moves when the conversion is re-run, so on its own it cannot distinguish new weights
+    from a new afternoon - which is how a correct benchmark row came to look stale."""
+    table = checkpoint_table(
+        report_of(
+            with_weights(
+                case(name="u2net-pretrained", model="u2net"),
+                filename="u2net.pt",
+                digest="b" * 64,
+                source="c" * 64,
+            )
+        )
+    )
+
+    assert "Converted from" in table
+    assert "`cccccccccccccccc...`" in table
+    # And the source is published *beside* the file digest rather than replacing it: the
+    # file digest is still what a reader compares against the bytes they have.
+    assert "`bbbbbbbbbbbbbbbb...`" in table
+
+
+def test_a_trained_checkpoint_in_a_converted_runs_table_says_so_rather_than_blank():
+    """A blank cell reads as "we did not record this". "trained in-repo" is the actual fact
+    and is a different claim."""
+    table = checkpoint_table(
+        report_of(
+            with_weights(
+                case(name="u2net-pretrained", model="u2net"),
+                filename="u2net.pt",
+                digest="b" * 64,
+                source="c" * 64,
+            ),
+            with_weights(case(), filename="cutoutnet-small.pt", digest="a" * 64),
+        )
+    )
+
+    cutoutnet_row = next(line for line in table.splitlines() if "cutoutnet-small.pt" in line)
+    assert "trained in-repo" in cutoutnet_row
+    assert cutoutnet_row.count("|") == table.splitlines()[0].count("|")
 
 
 def test_the_committed_report_still_renders():
