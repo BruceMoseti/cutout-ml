@@ -14,9 +14,26 @@ load and 8.8 ms in the quiet one - for reasons that have nothing to do with the 
 
 | Run id | Threads | Cases | Wall clock | Commit | Peak external load | Status |
 |---|---|---|---|---|---|---|
-| `20260810T054025Z-1385dc69` | 1, pinned | 28 | 304 s | `545d0b78` (clean) | 1.9 / 8 cores | **current** - rendered into the docs |
+| `20260810T071109Z-e0c34c05` | 1, pinned | 28 | 299 s | `33263e89` (clean) | 0.04 / 8 cores | **current** - rendered into the docs |
+| `20260810T054025Z-1385dc69` | 1, pinned | 28 | 304 s | `545d0b78` (clean) | 1.9 / 8 cores | superseded, see below |
 | `20260810T050712Z-6314f8b1` | 1, pinned | 28 | 411 s | `57f368fe` (clean) | 8.0 / 8 cores | superseded, see below |
 | `20260810T043848Z-8ff4b22d` | not pinned (8) | 20 | 2316 s | `008dc139` (dirty) | 8.0 / 8 cores | superseded, see below |
+
+The current run is the first with no contended case at all: every one of its 27 timed cases
+sampled an idle machine, so no figure in `docs/benchmarks.md` carries a `†`.
+
+## Why `20260810T054025Z` is superseded
+
+Its thread handling and its quiet-machine share make it the closest of the older runs to
+the current one - 19 of 27 cases sampled quiet - but its `cutoutnet-base` row is measured
+against a checkpoint that has no training record behind it. An earlier attempt at that
+architecture's run was killed at epoch 10, leaving weights on disk (`055eef63...`, IoU
+0.8595) that no `training/runs/*.json` describes. The run was repeated to completion and
+the current file measures the finished checkpoint (`8c7acbb0...`, IoU 0.8615), recorded in
+`training/runs/cutoutnet-base-20260810T065055Z.json`.
+
+A checkpoint whose training history does not exist is not a result, however good its
+number looks, which is why that row was re-measured rather than kept.
 
 ## Why `20260810T050712Z` is superseded
 
@@ -49,6 +66,18 @@ Both files are kept, unmodified, because each is a real measurement of a real
 configuration - and because the differences between the three are the most useful thing in
 this directory. They are the evidence for why the harness pins threads and why it records
 machine load per case.
+
+## `experiments/`
+
+Not suite reports. Each file there is the output of a targeted experiment answering one
+question that came up while reading the tables, written by a script in `benchmarks/` and
+carrying the same environment and per-case load provenance. They live in a subdirectory
+because the renderer treats every `.json` directly in this directory as a suite report and
+would otherwise publish an experiment as the latest results.
+
+- `order-effect-*.json` (`benchmarks/order_effect.py`) - how much a case's position within
+  one process changes its measured latency. It is the evidence behind the repeatability
+  note in `docs/benchmarks.md`, which would otherwise have to guess at a cause.
 
 ## Verifying a published number
 

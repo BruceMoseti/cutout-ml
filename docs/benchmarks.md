@@ -1,6 +1,6 @@
 <!-- GENERATED FILE - do not edit by hand.
      Produced by `python -m cutoutml.benchmarks.render_report`
-     from benchmarks/results/20260810T054025Z-1385dc69.json. -->
+     from benchmarks/results/20260810T071109Z-e0c34c05.json. -->
 
 # Benchmarks
 
@@ -10,9 +10,9 @@
 - **GPU**: none  <-- all numbers below are CPU-only; no GPU was available on this machine
 - **OS / Python**: Linux 6.12.94+ (x86_64) / Python 3.12.3
 - **Intra-op threads**: 1 per runtime, pinned by the harness - see [Thread scaling](#thread-scaling)
-- **Git commit**: `545d0b78c519` on `cursor/cutoutml-platform-3514`
+- **Git commit**: `33263e89e939` on `cursor/cutoutml-platform-3514`
 - **Libraries**: celery 5.6.3, fastapi 0.141.1, numpy 2.5.2, onnx 1.22.0, onnxruntime 1.28.0, opencv-python-headless 5.0.0.93, pillow 12.3.0, scipy 1.18.0, sqlalchemy 2.0.51, torch 2.13.0+cpu
-- **Run id**: `20260810T054025Z-1385dc69` (2026-08-10T05:40:25Z, 303.78 s wall clock)
+- **Run id**: `20260810T071109Z-e0c34c05` (2026-08-10T07:11:09Z, 299.13 s wall clock)
 
 ## Dataset
 
@@ -28,87 +28,51 @@
 
 | Model | Runtime | Precision | Batch | Threads | IoU | MAE | F-beta | Boundary F1 | p50 ms/img | p95 ms/img | img/s | Peak RSS | Model size |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| trivial-ones | numpy | fp32 | 1 | 1 | 0.3590 | 0.6410 | 0.4142 | 0.0000 | 0.12 | 0.12 | 8532.3 | 332.0 MiB | n/a |
-| trivial-center | numpy | fp32 | 1 | 1 | 0.4382 | 0.2644 | 0.6167 | 0.0959 | 0.53 | 0.57 | 1861.2 | 332.5 MiB | n/a |
-| classical-saliency | opencv+numpy | fp32 | 1 | 1 | 0.1508 | 0.3772 | 0.3130 | 0.1325 | 0.85 | 0.88 | 1171.7 | 333.8 MiB | n/a |
-| classical | opencv+numpy | fp32 | 1 | 1 | 0.6614 | 0.1455 | 0.7744 | 0.5766 | 262.96 | 282.20 | 3.8 | 334.4 MiB | n/a |
-| classical-saliency-grabcut | opencv+numpy | fp32 | 1 | 1 | 0.1570 | 0.3693 | 0.3145 | 0.2901 | 395.54 | 410.01 | 2.6 | 334.4 MiB | n/a |
-| cutoutnet-tiny | pytorch-eager | fp32 | 1 | 1 | 0.8241 | 0.0693 | 0.8936 | 0.7564 | 9.73 | 10.14 | 102.1 | 353.8 MiB | 0.5 MiB |
-| cutoutnet | pytorch-eager | fp32 | 1 | 1 | 0.8544 | 0.0573 | 0.9114 | 0.7965 | 30.71 | 31.27 | 32.5 | 343.5 MiB | 4.5 MiB |
-| cutoutnet-base | pytorch-eager | fp32 | 1 | 1 | 0.8595 | 0.0549 | 0.9168 | 0.8192 | 39.52 | 40.15 | 25.3 | 374.8 MiB | 16.8 MiB |
-| cutoutnet-onnx ONNX/CPU | onnxruntime:CPUExecutionProvider | fp32 | 1 | 1 | 0.8544 | 0.0573 | 0.9114 | 0.7965 | 16.31 | 16.35 | 61.3 | 430.6 MiB | 4.4 MiB |
-| u2netp | pytorch-eager | fp32 | 1 | 1 | 0.6380 | 0.1388 | 0.7205 | 0.6306 | 315.02 | 334.92 | 3.2 | 478.5 MiB | 4.6 MiB |
-| u2netp-onnx ONNX/CPU | onnxruntime:CPUExecutionProvider | fp32 | 1 | 1 | 0.6380 | 0.1388 | 0.7205 | 0.6306 | 248.63 † | 250.56 | 4.0 | 878.5 MiB | 4.4 MiB |
-| u2net | pytorch-eager | fp32 | 1 | 1 | 0.6974 | 0.1221 | 0.7758 | 0.7111 | 610.88 † | 636.60 | 1.6 | 757.0 MiB | 168.2 MiB |
-| u2net-onnx ONNX/CPU | onnxruntime:CPUExecutionProvider | fp32 | 1 | 1 | 0.6974 | 0.1221 | 0.7758 | 0.7111 | 592.95 | 597.00 | 1.7 | 1359.5 MiB | 167.8 MiB |
-| birefnet random-init | pytorch-eager | fp32 | 1 | 1 | n/a * | n/a * | n/a * | n/a * | 208.69 † | 212.69 | 4.8 | 739.7 MiB | 11.8 MiB |
-| cutoutnet compiled | pytorch-compile:inductor:default | fp32 | 1 | 1 | 0.8544 | 0.0573 | 0.9114 | 0.7965 | 19.12 † | 19.20 | 52.3 | 840.3 MiB | 4.5 MiB |
-| cutoutnet compiled | pytorch-compile:inductor:default | fp32 | 8 | 1 | 0.8544 | 0.0573 | 0.9114 | 0.7965 | 18.41 † | 18.82 | 54.3 | 852.9 MiB | 4.5 MiB |
-| cutoutnet | pytorch-eager | fp32 | 4 | 1 | 0.8544 | 0.0573 | 0.9114 | 0.7965 | 19.00 † | 19.63 | 52.3 | 853.0 MiB | 4.5 MiB |
-| cutoutnet | pytorch-eager | fp32 | 8 | 1 | 0.8544 | 0.0573 | 0.9114 | 0.7965 | 31.21 † | 33.47 | 32.4 | 853.0 MiB | 4.5 MiB |
-| cutoutnet-onnx ONNX/CPU | onnxruntime:CPUExecutionProvider | fp32 | 8 | 1 | 0.8544 | 0.0573 | 0.9114 | 0.7965 | 17.23 | 18.34 | 57.5 | 1093.0 MiB | 4.4 MiB |
+| trivial-ones | numpy | fp32 | 1 | 1 | 0.3590 | 0.6410 | 0.4142 | 0.0000 | 0.11 | 0.12 | 8772.9 | 331.7 MiB | n/a |
+| trivial-center | numpy | fp32 | 1 | 1 | 0.4382 | 0.2644 | 0.6167 | 0.0959 | 0.60 | 0.63 | 1650.9 | 332.1 MiB | n/a |
+| classical-saliency | opencv+numpy | fp32 | 1 | 1 | 0.1508 | 0.3772 | 0.3130 | 0.1325 | 0.94 | 0.99 | 1055.3 | 333.5 MiB | n/a |
+| classical | opencv+numpy | fp32 | 1 | 1 | 0.6614 | 0.1455 | 0.7744 | 0.5766 | 263.17 | 283.14 | 3.8 | 334.2 MiB | n/a |
+| classical-saliency-grabcut | opencv+numpy | fp32 | 1 | 1 | 0.1570 | 0.3693 | 0.3145 | 0.2901 | 396.96 | 411.30 | 2.6 | 334.2 MiB | n/a |
+| cutoutnet-tiny | pytorch-eager | fp32 | 1 | 1 | 0.8241 | 0.0693 | 0.8936 | 0.7564 | 10.02 | 11.00 | 98.2 | 353.5 MiB | 0.5 MiB |
+| cutoutnet | pytorch-eager | fp32 | 1 | 1 | 0.8544 | 0.0573 | 0.9114 | 0.7965 | 31.37 | 31.78 | 31.6 | 346.7 MiB | 4.5 MiB |
+| cutoutnet-base | pytorch-eager | fp32 | 1 | 1 | 0.8615 | 0.0508 | 0.9183 | 0.8247 | 40.24 | 40.34 | 24.8 | 376.0 MiB | 16.8 MiB |
+| cutoutnet-onnx ONNX/CPU | onnxruntime:CPUExecutionProvider | fp32 | 1 | 1 | 0.8544 | 0.0573 | 0.9114 | 0.7965 | 16.66 | 16.72 | 60.0 | 428.9 MiB | 4.4 MiB |
+| u2netp | pytorch-eager | fp32 | 1 | 1 | 0.6380 | 0.1388 | 0.7205 | 0.6306 | 276.65 | 301.13 | 3.6 | 455.8 MiB | 4.6 MiB |
+| u2netp-onnx ONNX/CPU | onnxruntime:CPUExecutionProvider | fp32 | 1 | 1 | 0.6380 | 0.1388 | 0.7205 | 0.6306 | 250.14 | 250.86 | 4.0 | 905.8 MiB | 4.4 MiB |
+| u2net | pytorch-eager | fp32 | 1 | 1 | 0.6974 | 0.1221 | 0.7758 | 0.7111 | 612.60 | 616.12 | 1.6 | 775.1 MiB | 168.2 MiB |
+| u2net-onnx ONNX/CPU | onnxruntime:CPUExecutionProvider | fp32 | 1 | 1 | 0.6974 | 0.1221 | 0.7758 | 0.7111 | 594.36 | 595.57 | 1.7 | 1368.6 MiB | 167.8 MiB |
+| birefnet random-init | pytorch-eager | fp32 | 1 | 1 | n/a * | n/a * | n/a * | n/a * | 223.98 | 228.57 | 4.5 | 748.8 MiB | 11.8 MiB |
+| cutoutnet compiled | pytorch-compile:inductor:default | fp32 | 1 | 1 | 0.8544 | 0.0573 | 0.9114 | 0.7965 | 18.87 | 19.09 | 52.9 | 849.4 MiB | 4.5 MiB |
+| cutoutnet compiled | pytorch-compile:inductor:default | fp32 | 8 | 1 | 0.8544 | 0.0573 | 0.9114 | 0.7965 | 17.84 | 17.89 | 56.1 | 862.3 MiB | 4.5 MiB |
+| cutoutnet | pytorch-eager | fp32 | 4 | 1 | 0.8544 | 0.0573 | 0.9114 | 0.7965 | 19.19 | 19.33 | 52.0 | 862.4 MiB | 4.5 MiB |
+| cutoutnet | pytorch-eager | fp32 | 8 | 1 | 0.8544 | 0.0573 | 0.9114 | 0.7965 | 28.74 | 29.16 | 34.7 | 862.4 MiB | 4.5 MiB |
+| cutoutnet-onnx ONNX/CPU | onnxruntime:CPUExecutionProvider | fp32 | 8 | 1 | 0.8544 | 0.0573 | 0.9114 | 0.7965 | 16.83 | 16.86 | 59.4 | 1102.4 MiB | 4.4 MiB |
 
 `n/a *` = accuracy not measurable for this row: the network ran with **random weights** so that latency could still be benchmarked without a loadable checkpoint. Latency in those rows is real; accuracy is meaningless.
 
-`†` = measured while another workload held the CPU, so the figure is an upper bound rather than this model's cost. Accuracy columns are unaffected: they are deterministic in the weights and the eval set. See [Machine contention](#machine-contention).
-
 ## Machine contention
 
-**8 of 27 timed cases were measured under contention.** External demand peaked at 1.9 of 8 cores (24% of the machine) while these timings were taken.
-
-The latency, throughput and peak-memory columns for those rows are therefore upper bounds on this hardware's cost, not measurements of it. They are published with the evidence attached rather than omitted, and marked `†` wherever they appear. Nothing here is corrected or extrapolated: a scaled-down number would be a guess.
-
-Accuracy is unaffected and is not qualified. IoU, MAE, F-measure and boundary F1 are deterministic functions of the weights and the eval set, and come out bit-identical whatever else the scheduler was doing.
-
-| Case | External cores busy | Load avg (1m) | Latency trustworthy |
-|---|---|---|---|
-| `trivial-ones` | 0.0 / 8 | 0.7 | yes |
-| `trivial-center` | 0.0 / 8 | 0.7 | yes |
-| `classical-saliency` | 0.0 / 8 | 0.7 | yes |
-| `classical-grabcut` | 0.0 / 8 | 0.6 | yes |
-| `classical-saliency+grabcut` | 0.0 / 8 | 0.8 | yes |
-| `cutoutnet-tiny-fp32` | 0.0 / 8 | 0.9 | yes |
-| `cutoutnet-fp32` | 0.0 / 8 | 0.9 | yes |
-| `cutoutnet-base-fp32` | 0.0 / 8 | 0.9 | yes |
-| `cutoutnet-onnx-cpu` | 0.0 / 8 | 0.9 | yes |
-| `u2netp-pretrained` | 0.0 / 8 | 0.9 | yes |
-| `u2netp-pretrained-onnx` | 1.8 / 8 | 1.0 | **no** |
-| `u2net-pretrained` | 1.6 / 8 | 1.2 | **no** |
-| `u2net-pretrained-onnx` | 0.0 / 8 | 1.4 | yes |
-| `birefnet-compact-randominit` | 1.0 / 8 | 1.7 | **no** |
-| `cutoutnet-fp32-compiled` | 1.1 / 8 | 1.8 | **no** |
-| `cutoutnet-fp32-b8-compiled` | 1.2 / 8 | 1.8 | **no** |
-| `cutoutnet-fp32-b4` | 1.3 / 8 | 1.8 | **no** |
-| `cutoutnet-fp32-b8` | 1.1 / 8 | 1.7 | **no** |
-| `cutoutnet-onnx-b8` | 0.0 / 8 | 1.7 | yes |
-| `threadscale-eager-t1` | 0.0 / 8 | 1.6 | yes |
-| `threadscale-eager-t2` | 0.0 / 8 | 1.6 | yes |
-| `threadscale-eager-t4` | 0.0 / 8 | 1.5 | yes |
-| `threadscale-eager-t8` | 0.0 / 8 | 1.5 | yes |
-| `threadscale-onnx-t1` | 0.0 / 8 | 1.5 | yes |
-| `threadscale-onnx-t2` | 0.0 / 8 | 1.5 | yes |
-| `threadscale-onnx-t4` | 0.0 / 8 | 1.5 | yes |
-| `threadscale-onnx-t8` | 1.9 / 8 | 1.5 | **no** |
+Every case was measured on a quiet machine: external demand never exceeded 0.0 of 8 cores. The latency figures are this hardware's.
 
 ## Thread scaling
 
 | Runtime | Threads | p50 ms | p95 ms | stddev ms | img/s | Speedup vs 1 thread |
 |---|---|---|---|---|---|---|
-| onnxruntime:CPUExecutionProvider | 1 | 16.4 | 16.5 | 0.1 | 60.8 | 1.00x |
-| onnxruntime:CPUExecutionProvider | 2 | 9.2 | 9.2 | 0.0 | 108.4 | 1.78x |
-| onnxruntime:CPUExecutionProvider | 4 | 5.7 | 5.9 | 0.1 | 173.5 | 2.87x |
-| onnxruntime:CPUExecutionProvider | 8 | 9.5 | 9.9 | 2.1 | 119.6 | 1.73x |
-| pytorch-eager | 1 | 21.3 | 21.6 | 0.2 | 46.8 | 1.00x |
-| pytorch-eager | 2 | 13.9 | 14.0 | 0.1 | 71.8 | 1.53x |
-| pytorch-eager | 4 | 9.5 | 9.6 | 0.2 | 104.9 | 2.25x |
-| pytorch-eager | 8 | 8.8 | 9.2 | 0.7 | 111.2 | 2.41x |
+| onnxruntime:CPUExecutionProvider | 1 | 16.4 | 16.7 | 0.1 | 60.9 | 1.00x |
+| onnxruntime:CPUExecutionProvider | 2 | 9.2 | 9.6 | 0.2 | 107.8 | 1.79x |
+| onnxruntime:CPUExecutionProvider | 4 | 5.9 | 6.5 | 0.3 | 166.5 | 2.75x |
+| onnxruntime:CPUExecutionProvider | 8 | 4.6 | 5.1 | 0.2 | 216.0 | 3.55x |
+| pytorch-eager | 1 | 20.7 | 20.8 | 0.1 | 48.3 | 1.00x |
+| pytorch-eager | 2 | 13.4 | 14.1 | 0.3 | 73.9 | 1.54x |
+| pytorch-eager | 4 | 9.2 | 9.4 | 0.1 | 108.3 | 2.24x |
+| pytorch-eager | 8 | 7.4 | 8.0 | 0.7 | 131.3 | 2.80x |
 
 Within each runtime the weights, the batch size and the image are identical; the only variable is how many intra-op threads the runtime was given. Compare down a runtime's rows, not across runtimes - the two runtimes execute different code.
 
-- **onnxruntime:CPUExecutionProvider**: 3x between its own extremes - 5.7 ms at 4 thread(s) against 16.4 ms at 1 (`threadscale-onnx-t1`). That is, threads bought what they should have.
-- **pytorch-eager**: 2x between its own extremes - 8.8 ms at 8 thread(s) against 21.3 ms at 1 (`threadscale-eager-t1`). That is, threads bought what they should have.
+- **onnxruntime:CPUExecutionProvider**: 4x between its own extremes - 4.6 ms at 8 thread(s) against 16.4 ms at 1 (`threadscale-onnx-t1`). That is, threads bought what they should have.
+- **pytorch-eager**: 3x between its own extremes - 7.4 ms at 8 thread(s) against 20.7 ms at 1 (`threadscale-eager-t1`). That is, threads bought what they should have.
 
-- **Repeatability**: `cutoutnet` at 1 thread(s) measured 21.3 ms here and 30.7 ms in the table above - 1.4x apart for the same configuration, minutes apart on the same machine. Neither figure is wrong; the machine was not the same machine at the two moments. This is what the `†` marks mean in practice, and it is the reason no single number on this page should be quoted without them.
+- **Repeatability**: `cutoutnet` at 1 thread(s) measured 20.7 ms here and 31.4 ms in the table above - 1.5x apart for the same configuration. Both rows sampled an idle machine, so contention does not account for it. What differs is where each sat in the run: latency here depends measurably on what ran earlier in the same process. `benchmarks/order_effect.py` isolates that effect - timing this configuration after a larger model, on a quiet machine, reproduces the faster figure with a standard deviation under 0.2 ms - and its result is archived under `benchmarks/results/experiments/`. Compare rows within this sweep, which ran back to back, rather than against the table above.
 
 Where a runtime gets *slower* with more threads, the extra time is not arithmetic but waiting. A U-Net forward pass is roughly a hundred parallel regions, each ending in a barrier, and a barrier cannot retire until every worker thread has been scheduled onto a core. Ask for eight threads on a machine whose cores are already committed and every one of those barriers waits on a descheduled thread, so the cost becomes a function of the scheduler rather than of the model. ONNX Runtime resists this better than PyTorch because it fuses the graph into far fewer parallel regions and controls its own spin-then-yield policy at each one.
 
@@ -125,23 +89,23 @@ one-off tracing and compilation cost, which the timed loop excludes.
 
 | Model | Batch | Runtime | Compiled | Codegen s | p50 ms/img | img/s | vs eager |
 |---|---|---|---|---|---|---|---|
-| cutoutnet | 1 | onnxruntime:CPUExecutionProvider | - | n/a | 16.31 | 61.3 | 1.88x |
-| cutoutnet | 1 | pytorch-compile:inductor:default | yes | 4.2 | 19.12 | 52.3 | 1.61x |
-| cutoutnet | 1 | pytorch-eager | - | n/a | 30.71 | 32.5 | 1.00x |
-| cutoutnet | 8 | onnxruntime:CPUExecutionProvider | - | n/a | 17.23 | 57.5 | 1.81x |
-| cutoutnet | 8 | pytorch-compile:inductor:default | yes | 2.3 | 18.41 | 54.3 | 1.70x |
-| cutoutnet | 8 | pytorch-eager | - | n/a | 31.21 | 32.4 | 1.00x |
-| u2net | 1 | onnxruntime:CPUExecutionProvider | - | n/a | 592.95 | 1.7 | 1.03x |
-| u2net | 1 | pytorch-eager | - | n/a | 610.88 | 1.6 | 1.00x |
-| u2netp | 1 | onnxruntime:CPUExecutionProvider | - | n/a | 248.63 | 4.0 | 1.27x |
-| u2netp | 1 | pytorch-eager | - | n/a | 315.02 | 3.2 | 1.00x |
+| cutoutnet | 1 | onnxruntime:CPUExecutionProvider | - | n/a | 16.66 | 60.0 | 1.88x |
+| cutoutnet | 1 | pytorch-compile:inductor:default | yes | 4.2 | 18.87 | 52.9 | 1.66x |
+| cutoutnet | 1 | pytorch-eager | - | n/a | 31.37 | 31.6 | 1.00x |
+| cutoutnet | 8 | onnxruntime:CPUExecutionProvider | - | n/a | 16.83 | 59.4 | 1.71x |
+| cutoutnet | 8 | pytorch-compile:inductor:default | yes | 2.3 | 17.84 | 56.1 | 1.61x |
+| cutoutnet | 8 | pytorch-eager | - | n/a | 28.74 | 34.7 | 1.00x |
+| u2net | 1 | onnxruntime:CPUExecutionProvider | - | n/a | 594.36 | 1.7 | 1.03x |
+| u2net | 1 | pytorch-eager | - | n/a | 612.60 | 1.6 | 1.00x |
+| u2netp | 1 | onnxruntime:CPUExecutionProvider | - | n/a | 250.14 | 4.0 | 1.11x |
+| u2netp | 1 | pytorch-eager | - | n/a | 276.65 | 3.6 | 1.00x |
 
 ## Checkpoint provenance
 
 | Model | Weights | SHA-256 |
 |---|---|---|
 | cutoutnet | `cutoutnet-small.pt` | `7877d96d498a0631...` |
-| cutoutnet-base | `cutoutnet-base.pt` | `055eef63d5a55ceb...` |
+| cutoutnet-base | `cutoutnet-base.pt` | `8c7acbb0b825d81c...` |
 | cutoutnet-onnx | `cutoutnet-small.onnx` | `45540e5ef2f1e94d...` |
 | cutoutnet-tiny | `cutoutnet-tiny.pt` | `3fe10d23bcf4a0b3...` |
 | u2net | `u2net.pt` | `46c41386f871b54c...` |
@@ -157,25 +121,25 @@ resolution-dependent while inference is fixed at the letterboxed size.
 
 | Model | Preprocess ms | Inference ms | Postprocess ms | Refine ms | Cold start s |
 |---|---|---|---|---|---|
-| trivial-ones | 1.35 | 0.18 | 0.13 | 0.08 | 0.000 |
-| trivial-center | 1.39 | 0.61 | 0.13 | 0.08 | 0.000 |
-| classical-saliency | 0.43 | 1.19 | 0.16 | 0.11 | 0.000 |
-| classical | 0.40 | 271.85 | 0.14 | 0.09 | 0.000 |
-| classical-saliency-grabcut | 0.40 | 367.32 | 0.15 | 0.08 | 0.000 |
-| cutoutnet-tiny | 0.78 | 9.96 | 0.06 | 0.10 | 0.022 |
-| cutoutnet | 0.76 | 30.67 | 0.06 | 0.09 | 0.036 |
-| cutoutnet-base | 0.79 | 39.55 | 0.06 | 0.09 | 0.069 |
-| cutoutnet-onnx ONNX/CPU | 0.78 | 16.41 | 0.08 | 0.09 | 0.034 |
-| u2netp | 1.57 | 299.99 | 0.20 | 0.12 | 0.062 |
-| u2netp-onnx ONNX/CPU | 1.50 | 249.33 | 0.17 | 0.12 | 0.033 |
-| u2net | 1.54 | 609.23 | 0.22 | 0.13 | 0.468 |
-| u2net-onnx ONNX/CPU | 1.74 | 600.11 | 0.22 | 0.15 | 0.185 |
-| birefnet random-init | 4.20 | 212.21 | 0.51 | 0.15 | 0.027 |
-| cutoutnet compiled | 0.78 | 19.05 | 0.06 | 0.09 | 0.037 |
-| cutoutnet compiled | 0.81 | 18.93 | 0.04 | 0.07 | 0.038 |
-| cutoutnet | 0.77 | 19.60 | 0.05 | 0.08 | 0.039 |
-| cutoutnet | 0.82 | 30.21 | 0.05 | 0.08 | 0.038 |
-| cutoutnet-onnx ONNX/CPU | 0.80 | 17.83 | 0.05 | 0.08 | 0.020 |
+| trivial-ones | 1.39 | 0.18 | 0.14 | 0.07 | 0.000 |
+| trivial-center | 1.34 | 0.62 | 0.14 | 0.07 | 0.000 |
+| classical-saliency | 0.39 | 0.96 | 0.13 | 0.07 | 0.000 |
+| classical | 0.40 | 272.52 | 0.16 | 0.08 | 0.000 |
+| classical-saliency-grabcut | 0.39 | 367.02 | 0.15 | 0.08 | 0.000 |
+| cutoutnet-tiny | 0.79 | 10.19 | 0.06 | 0.09 | 0.026 |
+| cutoutnet | 0.76 | 31.77 | 0.06 | 0.09 | 0.042 |
+| cutoutnet-base | 0.76 | 40.42 | 0.06 | 0.09 | 0.069 |
+| cutoutnet-onnx ONNX/CPU | 0.77 | 16.80 | 0.08 | 0.09 | 0.043 |
+| u2netp | 1.53 | 288.48 | 0.19 | 0.11 | 0.068 |
+| u2netp-onnx ONNX/CPU | 1.54 | 249.87 | 0.13 | 0.11 | 0.035 |
+| u2net | 1.63 | 610.89 | 0.18 | 0.11 | 0.583 |
+| u2net-onnx ONNX/CPU | 1.56 | 594.56 | 0.19 | 0.12 | 0.264 |
+| birefnet random-init | 3.97 | 224.96 | 0.46 | 0.14 | 0.027 |
+| cutoutnet compiled | 0.80 | 19.08 | 0.06 | 0.17 | 0.037 |
+| cutoutnet compiled | 0.77 | 17.85 | 0.04 | 0.07 | 0.038 |
+| cutoutnet | 0.81 | 19.32 | 0.04 | 0.09 | 0.039 |
+| cutoutnet | 0.83 | 28.65 | 0.05 | 0.08 | 0.038 |
+| cutoutnet-onnx ONNX/CPU | 0.76 | 16.83 | 0.03 | 0.07 | 0.020 |
 
 ## Full accuracy metrics
 
@@ -188,7 +152,7 @@ resolution-dependent while inference is fixed at the letterboxed size.
 | classical-saliency-grabcut | 0.1570 | 0.2531 | 0.3693 | 0.3145 | 0.3410 | 0.3435 | 0.2901 | 0.4612 | 0.4482 | 0.1995 |
 | cutoutnet-tiny | 0.8241 | 0.8916 | 0.0693 | 0.8936 | 0.9161 | 0.8778 | 0.7564 | 0.0707 | 0.8994 | 0.9065 |
 | cutoutnet | 0.8544 | 0.9098 | 0.0573 | 0.9114 | 0.9283 | 0.8953 | 0.7965 | 0.0590 | 0.9154 | 0.9215 |
-| cutoutnet-base | 0.8595 | 0.9081 | 0.0549 | 0.9168 | 0.9407 | 0.8964 | 0.8192 | 0.0635 | 0.9282 | 0.9037 |
+| cutoutnet-base | 0.8615 | 0.9103 | 0.0508 | 0.9183 | 0.9423 | 0.8987 | 0.8247 | 0.0575 | 0.9382 | 0.9115 |
 | cutoutnet-onnx ONNX/CPU | 0.8544 | 0.9098 | 0.0573 | 0.9114 | 0.9283 | 0.8953 | 0.7965 | 0.0590 | 0.9154 | 0.9215 |
 | u2netp | 0.6380 | 0.6967 | 0.1388 | 0.7205 | 0.7597 | 0.7405 | 0.6306 | 0.1788 | 0.8912 | 0.6800 |
 | u2netp-onnx ONNX/CPU | 0.6380 | 0.6967 | 0.1388 | 0.7205 | 0.7597 | 0.7405 | 0.6306 | 0.1788 | 0.8912 | 0.6800 |
@@ -251,6 +215,26 @@ from:
    curve. Every row records the thread count the runtime actually ran with, taken from
    the runtime rather than from the request, because ONNX Runtime silently resolves a
    request of 0 to one thread per core.
+
+6. **Position in the run changes the number, and it is not noise.** This suite measures
+   `cutoutnet` eager at batch 1 and one thread twice - once in the main table, once as
+   the one-thread rung of the thread sweep - and on a completely idle machine the two
+   land about 1.5x apart, each with a standard deviation under 0.2 ms. That is not
+   contention (the harness sampled the load before both and both were quiet) and it is
+   not warmup (warmup iterations are discarded from both). It depends on what ran earlier
+   in the same process: `benchmarks/order_effect.py` times the identical configuration
+   after each of several preludes and finds that one particular earlier model reproduces
+   the faster figure while others, including a much more expensive one, change nothing.
+
+   The mechanism is not established here, and two plausible ones were tested and
+   rejected: pre-faulting up to 1 GiB of heap before the timed loop changes nothing, and
+   running a compiled case first changes nothing. What follows for a reader is concrete
+   regardless of the cause - **compare rows that ran near each other**, which is why the
+   thread sweep is a self-contained block rather than figures scattered through the main
+   table, and treat a 1.5x agreement between two distant rows as the floor on this
+   harness's cross-row precision. The experiment's own output, with the per-arm load
+   samples that rule out contention, is archived in
+   `benchmarks/results/experiments/`.
 
 ### What is measured
 

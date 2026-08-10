@@ -57,21 +57,21 @@ table and exactly what was and was not measured.
 <!-- BENCHMARKS:BEGIN -->
 | Model | Runtime | IoU | MAE | p50 latency | Throughput | Size |
 |---|---|---|---|---|---|---|
-| **trivial-ones** | numpy | 0.3590 | 0.6410 | 0.1 ms | 8532.3 img/s | n/a |
-| **trivial-center** | numpy | 0.4382 | 0.2644 | 0.5 ms | 1861.2 img/s | n/a |
-| **classical-saliency** | opencv+numpy | 0.1508 | 0.3772 | 0.8 ms | 1171.7 img/s | n/a |
-| **classical** | opencv+numpy | 0.6614 | 0.1455 | 263.0 ms | 3.8 img/s | n/a |
-| **classical-saliency-grabcut** | opencv+numpy | 0.1570 | 0.3693 | 395.5 ms | 2.6 img/s | n/a |
-| **cutoutnet-tiny** | pytorch-eager | 0.8241 | 0.0693 | 9.7 ms | 102.1 img/s | 0.5 MiB |
-| **cutoutnet** | pytorch-eager | 0.8544 | 0.0573 | 30.7 ms | 32.5 img/s | 4.5 MiB |
-| **cutoutnet-base** | pytorch-eager | 0.8595 | 0.0549 | 39.5 ms | 25.3 img/s | 16.8 MiB |
-| **cutoutnet-onnx ONNX/CPU** | onnxruntime:CPUExecutionProvider | 0.8544 | 0.0573 | 16.3 ms | 61.3 img/s | 4.4 MiB |
-| **u2netp** | pytorch-eager | 0.6380 | 0.1388 | 315.0 ms | 3.2 img/s | 4.6 MiB |
-| **u2netp-onnx ONNX/CPU** | onnxruntime:CPUExecutionProvider | 0.6380 | 0.1388 | 248.6 ms † | 4.0 img/s | 4.4 MiB |
-| **u2net** | pytorch-eager | 0.6974 | 0.1221 | 610.9 ms † | 1.6 img/s | 168.2 MiB |
-| **u2net-onnx ONNX/CPU** | onnxruntime:CPUExecutionProvider | 0.6974 | 0.1221 | 592.9 ms | 1.7 img/s | 167.8 MiB |
-| **birefnet random-init** | pytorch-eager | n/a * | n/a * | 208.7 ms † | 4.8 img/s | 11.8 MiB |
-| **cutoutnet compiled** | pytorch-compile:inductor:default | 0.8544 | 0.0573 | 19.1 ms † | 52.3 img/s | 4.5 MiB |
+| **trivial-ones** | numpy | 0.3590 | 0.6410 | 0.1 ms | 8772.9 img/s | n/a |
+| **trivial-center** | numpy | 0.4382 | 0.2644 | 0.6 ms | 1650.9 img/s | n/a |
+| **classical-saliency** | opencv+numpy | 0.1508 | 0.3772 | 0.9 ms | 1055.3 img/s | n/a |
+| **classical** | opencv+numpy | 0.6614 | 0.1455 | 263.2 ms | 3.8 img/s | n/a |
+| **classical-saliency-grabcut** | opencv+numpy | 0.1570 | 0.3693 | 397.0 ms | 2.6 img/s | n/a |
+| **cutoutnet-tiny** | pytorch-eager | 0.8241 | 0.0693 | 10.0 ms | 98.2 img/s | 0.5 MiB |
+| **cutoutnet** | pytorch-eager | 0.8544 | 0.0573 | 31.4 ms | 31.6 img/s | 4.5 MiB |
+| **cutoutnet-base** | pytorch-eager | 0.8615 | 0.0508 | 40.2 ms | 24.8 img/s | 16.8 MiB |
+| **cutoutnet-onnx ONNX/CPU** | onnxruntime:CPUExecutionProvider | 0.8544 | 0.0573 | 16.7 ms | 60.0 img/s | 4.4 MiB |
+| **u2netp** | pytorch-eager | 0.6380 | 0.1388 | 276.7 ms | 3.6 img/s | 4.6 MiB |
+| **u2netp-onnx ONNX/CPU** | onnxruntime:CPUExecutionProvider | 0.6380 | 0.1388 | 250.1 ms | 4.0 img/s | 4.4 MiB |
+| **u2net** | pytorch-eager | 0.6974 | 0.1221 | 612.6 ms | 1.6 img/s | 168.2 MiB |
+| **u2net-onnx ONNX/CPU** | onnxruntime:CPUExecutionProvider | 0.6974 | 0.1221 | 594.4 ms | 1.7 img/s | 167.8 MiB |
+| **birefnet random-init** | pytorch-eager | n/a * | n/a * | 224.0 ms | 4.5 img/s | 11.8 MiB |
+| **cutoutnet compiled** | pytorch-compile:inductor:default | 0.8544 | 0.0573 | 18.9 ms | 52.9 img/s | 4.5 MiB |
 
 **Benchmark environment**: Intel(R) Xeon(R) Processor, 8 vCPU (8 physical cores), 47 GB RAM, no GPU (CPU-only). GPU: **none**. Every number above was measured by `benchmarks/run.py` on this machine - none are copied from a paper or estimated.
 
@@ -79,9 +79,7 @@ table and exactly what was and was not measured.
 
 `n/a *` = the network ran with **random weights** (no checkpoint exists that this architecture can load), so its latency is real but accuracy is not measurable.
 
-`†` = **measured under CPU contention.** A concurrent workload was using up to 1.9 of this machine's 8 cores while 8 of the timed cases ran, so those latency and throughput figures are upper bounds rather than this hardware's cost. They are published with the per-case load evidence rather than quietly cleaned up. **The accuracy columns are unaffected** - they are deterministic in the weights and the eval set.
-
-Source data: [`benchmarks/results/20260810T054025Z-1385dc69.json`](benchmarks/results/20260810T054025Z-1385dc69.json) - regenerate with `make bench`. Full methodology and the per-case load table: [docs/benchmarks.md](docs/benchmarks.md).
+Source data: [`benchmarks/results/20260810T071109Z-e0c34c05.json`](benchmarks/results/20260810T071109Z-e0c34c05.json) - regenerate with `make bench`. Full methodology and the per-case load table: [docs/benchmarks.md](docs/benchmarks.md).
 <!-- BENCHMARKS:END -->
 
 Methodology, the full metric set, the per-stage timing breakdown and the reasons the
