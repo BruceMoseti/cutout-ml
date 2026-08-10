@@ -7,6 +7,7 @@ BN-folded graph on the fly and need nothing external.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import numpy as np
@@ -21,7 +22,9 @@ from cutoutml.models.u2net.arch import RSU, u2net_full, u2net_lite
 from cutoutml.models.u2net.from_onnx import (
     _NAMED_TAIL,
     ConversionError,
+    convert,
     materialize_state_dict,
+    sha256_file,
     torch_conv_order,
     verify_parity,
 )
@@ -134,6 +137,23 @@ def test_u2net_divides_by_the_image_maximum_and_survives_a_black_image():
         128 / 255
     )
     assert adapter.intensity_divisor(np.zeros((8, 8, 3), dtype=np.uint8)) is None
+
+
+def test_most_of_the_eval_set_peaks_below_full_intensity():
+    """The measurement that makes the max division worth implementing.
+
+    Skipping it is defensible for photographs, where a saturated pixel is near-universal
+    and the divisor is 1.0. It is not defensible here, and this pins the number
+    ``docs/models.md`` quotes: a generator change that saturated the eval set would make
+    that paragraph wrong, and nothing else in the suite would notice.
+    """
+    from cutoutml.datasets.synthetic import SyntheticSegmentationDataset
+
+    dataset = SyntheticSegmentationDataset(count=64, split="test")
+    peaks = [int(np.asarray(dataset.sample(index)[0]).max()) for index in range(64)]
+
+    assert sum(1 for peak in peaks if peak < 255) == 40
+    assert min(peaks) == 155
 
 
 def test_the_divisor_is_taken_before_letterboxing_so_padding_cannot_change_it():
@@ -336,3 +356,48 @@ def test_the_full_conversion_agrees_with_onnxruntime():
     module = u2net_full()
     module.load_state_dict(materialize_state_dict(U2NET_ONNX, "full"), strict=True)
     assert verify_parity(U2NET_ONNX, module, samples=1) < 1e-4
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(not U2NETP_ONNX.is_file(), reason="u2netp.onnx not downloaded")
+def test_two_conversions_of_one_graph_produce_byte_identical_checkpoints(tmp_path: Path):
+    """The benchmark suite records the SHA-256 of the weights behind every accuracy row,
+    and the archive index reads a changed digest as changed weights. Anything varying in
+    the serialised checkpoint - a conversion timestamp being the obvious candidate - turns
+    that inference into a false one."""
+    # Same file name in two directories, not two names in one: ``torch.save`` writes a zip
+    # whose internal archive name comes from the destination path, so a checkpoint's digest
+    # is only comparable against one written to the same name. That is a property of the
+    # format rather than of this converter, and it is why the suite compares a row against
+    # the same weights file rather than against a copy.
+    first = tmp_path / "a" / "u2netp.pt"
+    second = tmp_path / "b" / "u2netp.pt"
+    convert(U2NETP_ONNX, first, variant="lite")
+    convert(U2NETP_ONNX, second, variant="lite")
+
+    assert sha256_file(first) == sha256_file(second)
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(not U2NETP_ONNX.is_file(), reason="u2netp.onnx not downloaded")
+def test_the_conversion_record_carries_what_the_docs_quote(tmp_path: Path):
+    """The weights are not committed, so a parity figure in the docs is only checkable
+    from a clone if the conversion leaves a record behind."""
+    result = convert(
+        U2NETP_ONNX,
+        tmp_path / "u2netp.pt",
+        variant="lite",
+        record_path=tmp_path / "record.json",
+    )
+    record = json.loads((tmp_path / "record.json").read_text())
+
+    assert record["parity_max_abs_diff"] == result.parity_max_abs_diff
+    assert record["source_sha256"] == result.source_sha256
+    assert record["convolutions"] == 119
+    assert record["license"].startswith("Apache-2.0")
+    assert record["checkpoint_sha256"] == sha256_file(tmp_path / "u2netp.pt")
+    # In the record, which describes an event, but never in the checkpoint, whose digest
+    # has to identify the weights and nothing else.
+    assert "converted_at" in record
+    payload = torch.load(tmp_path / "u2netp.pt", map_location="cpu", weights_only=False)
+    assert "converted_at" not in payload["provenance"]

@@ -242,8 +242,12 @@ execution order by running the module under forward hooks rather than trusting c
 order, then verifies the result three ways: pairwise shapes, the seven convolutions that
 kept their names landing where their names say, and **numerical parity against onnxruntime —
 1.4e-7 for the 44M model**, about three orders of magnitude finer than one 8-bit alpha
-level. The BatchNorms become exact identities, which makes the checkpoint equivalent in
-`eval()` and unusable for fine-tuning; that limitation is recorded inside the file.
+level. Since the weights are not committed, that figure is not checkable from a clone unless
+the conversion leaves a record behind, so it does:
+[`models/conversions/`](models/conversions/) holds the parity figure, the tolerance, both
+digests and the runtime versions for each converted checkpoint. The BatchNorms become exact
+identities, which makes the checkpoint equivalent in `eval()` and unusable for fine-tuning;
+that limitation is recorded inside the file.
 
 **That conversion found a bug no test could have.** It refused to convert, because the full
 U²-Net's decoder widths had been derived from the encoder table instead of transcribed from

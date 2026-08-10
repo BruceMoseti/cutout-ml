@@ -89,11 +89,27 @@ Measured parity is **1.4e-7** for the full model and **1.5e-6** for lite, agains
 tolerance — roughly three orders of magnitude finer than one 8-bit alpha level, so the
 difference cannot survive quantisation to a PNG.
 
+Those two figures are not written down here from memory. Because the weights themselves are
+not committed, the conversion also writes a record that is:
+[`models/conversions/u2net.json`](../models/conversions/u2net.json) and
+[`u2netp.json`](../models/conversions/u2netp.json) carry the parity figure, the tolerance it
+was checked against, the SHA-256 of the source graph and of the checkpoint produced, the
+convolution count, and the onnxruntime and torch versions that produced the comparison.
+They are to a converted checkpoint what `training/runs/*.json` is to a trained one.
+
 The resulting checkpoints have their BatchNorms set to exact identities, because the
 convolutions have absorbed them. That makes them equivalent in `eval()` but **unsuitable for
 fine-tuning**: the BatchNorms are neutral, not calibrated, and would start re-learning
 statistics for activations that have already been scaled. Each file records this, its source
-digest and its licence in a provenance dict stored inside the checkpoint.
+digest and its licence in a provenance dict stored inside the checkpoint as well, because a
+sidecar is what goes missing when weights are copied between machines and U²-Net weights of
+unknown origin are a licensing problem as much as a reproducibility one.
+
+The conversion is byte-reproducible: converting one graph twice to the same path yields the
+same checkpoint digest. That matters because the benchmark suite records the SHA-256 of the
+weights behind every accuracy row and the archive index reads a changed digest as changed
+weights — so the conversion timestamp lives in the record, never in the checkpoint. A test
+pins both halves of that.
 
 - `u2net` / `u2netp` run the authors' weights, Apache-2.0, with **real accuracy figures**.
 - `u2net-onnx` / `u2netp-onnx` run the same weights under onnxruntime. Because parity is
@@ -111,9 +127,12 @@ digest and its licence in a provenance dict stored inside the checkpoint.
 U²-Net's reference pipeline rescales to `[0, 1]`, divides each image by its own maximum
 intensity, and then applies `mean=(0.485, 0.456, 0.406)`, `std=(0.229, 0.224, 0.225)`. The
 max division was previously skipped here on the grounds that it is a no-op for any image
-containing a saturated pixel. That is true of most photographs but false of this eval set,
-where 9 of 16 sampled images peak below 255 — so the pretrained weights were being fed a
-compressed dynamic range they were never trained on. It is now implemented, computed from
+containing a saturated pixel. That is true of most photographs but false of this eval set:
+**40 of its 64 test images peak below 255, and the dimmest peaks at 155** — so the
+pretrained weights were being fed a compressed dynamic range they were never trained on.
+Those two counts are asserted in `tests/test_u2net_weights.py` rather than written down
+here, because the eval set is procedurally generated and a change to the generator would
+otherwise falsify this paragraph silently. The division is now implemented, computed from
 the source pixels rather than the letterboxed canvas so that constant padding cannot set
 the maximum.
 
@@ -174,17 +193,37 @@ Training uses the deterministic procedural dataset
 ([ADR-004](decisions/ADR-004-synthetic-dataset.md)), so a rerun is reproducible up to BLAS
 non-determinism. Every run writes a record to `training/runs/*.json` — per-epoch losses,
 validation IoU and MAE, throughput and the full hyperparameter set — and those records
-**are** committed. They are the provenance for the accuracy column in
-[docs/benchmarks.md](benchmarks.md).
+**are** committed. They are what connects a benchmark row to a training history: the
+`Checkpoint provenance` table in [docs/benchmarks.md](benchmarks.md) gives the SHA-256 of
+the weights behind each accuracy figure, and a run record names the checkpoint it wrote. The
+accuracy numbers themselves are not in the training records and are not meant to match them
+— a record reports validation IoU over 192 held-out samples during training, while the
+benchmark measures the finished checkpoint over the 64-sample test split with the serving
+preprocessing and refinement stack attached.
 
-Measured cost on the 8-core CPU these docs were written on, at the suite's fixed budget of
-2048 samples/epoch for 14 epochs at 256 px: roughly 200–250 s per epoch for
-`cutoutnet-tiny`. The per-step costs at batch 8 were 261 ms (tiny), 667 ms (small), 422 ms
-(base) and 1194 ms (u2net-lite), so `u2net-lite` takes about four times as long as `tiny`
-for the same number of samples. Holding the budget fixed rather than the wall clock is the
-only way the cross-architecture comparison means anything, and this is what it costs.
+Measured cost of the three committed runs, all on the same 8-core CPU with 8 intra-op
+threads, at the suite's fixed budget of 2048 samples/epoch for 14 epochs at 256 px and batch
+16:
 
-`u2net` (full) and `birefnet` are excluded from the suite by default. They are registered
+| Run | Params | Median s/epoch | Range | Median samples/s | Wall clock | Best val IoU |
+|---|---|---|---|---|---|---|
+| `cutoutnet-tiny` | 0.12M | 242 | 171–680 | 8.5 | 71 min | 0.8079 |
+| `cutoutnet-small` | 1.14M | 153 | 144–214 | 13.4 | 38 min | 0.8265 |
+| `cutoutnet-base` | 4.34M | 174 | 172–271 | 11.8 | 42 min | 0.8434 |
+
+**Those wall clocks do not rank the architectures, and the table is here to make that
+visible rather than to hide it.** The smallest network is the slowest of the three, which
+cannot be a property of the network: the `tiny` run's epochs range over a factor of four
+against `small`'s factor of 1.5, so it was sharing the machine. Unlike the benchmark harness,
+the trainer does not sample external CPU load, so there is no per-epoch evidence to attach
+and no honest way to correct these figures — they are what those runs cost on that machine
+on that day, and nothing more. Holding the sample budget fixed is what makes the *accuracy*
+column comparable across the three; the seconds column is not comparable and should not be
+read as though it were.
+
+`u2net-lite` is trainable by the same command and is in `make weights`, but no run of it is
+committed and none has been measured; its benchmark case is recorded as skipped for missing
+weights. `u2net` (full) and `birefnet` are excluded from the suite by default — registered
 and trainable, but a useful run needs a GPU.
 
 ### Download upstream weights

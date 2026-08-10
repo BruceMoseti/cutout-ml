@@ -293,13 +293,17 @@ def convert(
     variant: str = "full",
     tolerance: float = PARITY_TOLERANCE,
     parity_samples: int = 2,
+    record_path: Path | str | None = None,
 ) -> ConversionResult:
     """Convert, verify, and write a checkpoint. Raises unless parity holds.
 
-    The provenance record travels inside the checkpoint rather than beside it, because a
-    sidecar file is exactly what goes missing when weights are copied between machines -
-    and a set of U^2-Net weights whose origin is unknown is a licensing problem as much
-    as a reproducibility one.
+    The provenance record travels inside the checkpoint, because a sidecar file is exactly
+    what goes missing when weights are copied between machines - and a set of U^2-Net
+    weights whose origin is unknown is a licensing problem as much as a reproducibility
+    one. ``record_path`` writes the same dict out as JSON as well, which serves the
+    opposite need: the weights are not committed, so a parity figure quoted in the docs is
+    otherwise unverifiable from a clone. The committed record is to the checkpoint what
+    ``training/runs/*.json`` is to a trained one.
     """
     source = Path(onnx_path)
     state = materialize_state_dict(source, variant)
@@ -327,22 +331,45 @@ def convert(
 
     destination = Path(output_path)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    payload = {
-        "state_dict": state,
-        "provenance": {
-            **result.as_dict(),
-            "converted_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            "converter": "cutoutml.models.u2net.from_onnx",
-            "batchnorm": "identity (folded into the preceding convolution)",
-            "fine_tuning": "not supported; the BatchNorms are neutral, not calibrated",
-            "license": "Apache-2.0 (Qin et al., U^2-Net)",
-        },
+    provenance = {
+        **result.as_dict(),
+        "converter": "cutoutml.models.u2net.from_onnx",
+        "batchnorm": "identity (folded into the preceding convolution)",
+        "fine_tuning": "not supported; the BatchNorms are neutral, not calibrated",
+        "license": "Apache-2.0 (Qin et al., U^2-Net)",
     }
+    # Deliberately no conversion timestamp in the checkpoint. The benchmark suite records
+    # the SHA-256 of the weights behind every accuracy row, and the archive index reads a
+    # changed digest as changed weights - so a clock reading in here would make two
+    # conversions of one graph look like two different sets of weights. The timestamp goes
+    # in the committed record instead, where it describes an event rather than a tensor.
+    payload = {"state_dict": state, "provenance": provenance}
     # Written to a temporary sibling and renamed so an interrupted write cannot leave a
     # truncated checkpoint that a later run would load as if it were valid.
     staging = destination.with_suffix(destination.suffix + ".partial")
     torch.save(payload, staging)
     staging.replace(destination)
+
+    if record_path is not None:
+        record = Path(record_path)
+        record.parent.mkdir(parents=True, exist_ok=True)
+        record.write_text(
+            json.dumps(
+                {
+                    **provenance,
+                    "checkpoint": destination.name,
+                    "checkpoint_sha256": sha256_file(destination),
+                    "converted_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                    "environment": {
+                        "onnxruntime": _package_version("onnxruntime"),
+                        "torch": torch.__version__,
+                    },
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n"
+        )
 
     log.info(
         "u2net_converted_from_onnx",
@@ -352,6 +379,32 @@ def convert(
         parity_max_abs_diff=worst,
     )
     return result
+
+
+def _package_version(name: str) -> str | None:
+    """The installed version, or ``None``.
+
+    Recorded because parity is a claim about two implementations agreeing, and which
+    onnxruntime produced the reference half of that comparison is part of the claim.
+    """
+    from importlib.metadata import PackageNotFoundError, version
+
+    try:
+        return version(name)
+    except PackageNotFoundError:
+        return None
+
+
+def default_record_path(output_path: Path | str) -> Path:
+    """Where a conversion record goes when the caller does not choose.
+
+    Not beside the checkpoint: ``.gitignore`` excludes weights by extension, and a record
+    living in the same directory as a 176 MB ``.onnx`` invites someone to add a directory
+    ignore that swallows it. ``models/conversions/`` holds only records.
+    """
+    from cutoutml.core.config import REPO_ROOT
+
+    return REPO_ROOT / "models" / "conversions" / f"{Path(output_path).stem}.json"
 
 
 def build_parser() -> Any:
@@ -365,6 +418,18 @@ def build_parser() -> Any:
     parser.add_argument("--variant", default="full", choices=list(VARIANTS))
     parser.add_argument("--tolerance", type=float, default=PARITY_TOLERANCE)
     parser.add_argument("--parity-samples", type=int, default=2)
+    parser.add_argument(
+        "--record",
+        type=Path,
+        default=None,
+        help=(
+            "write the provenance record here as JSON as well as into the checkpoint "
+            "(default: models/conversions/<name>.json, which is committed)"
+        ),
+    )
+    parser.add_argument(
+        "--no-record", action="store_true", help="skip the committed provenance record"
+    )
     return parser
 
 
@@ -373,14 +438,18 @@ def main(argv: list[str] | None = None) -> int:
 
     args = build_parser().parse_args(argv)
     configure_logging(fmt="console")
+    record_path = None if args.no_record else (args.record or default_record_path(args.output))
     result = convert(
         args.onnx,
         args.output,
         variant=args.variant,
         tolerance=args.tolerance,
         parity_samples=args.parity_samples,
+        record_path=record_path,
     )
     print(json.dumps(result.as_dict(), indent=2))
+    if record_path is not None:
+        print(f"recorded {record_path}")
     return 0
 
 

@@ -1,0 +1,20 @@
+{
+  "batchnorm": "identity (folded into the preceding convolution)",
+  "checkpoint": "u2net.pt",
+  "checkpoint_sha256": "26a059bb7fb26a948b11c9a5e28360806c9da9039a234d480ebe3b13d3533a17",
+  "converted_at": "2026-08-10T08:16:02Z",
+  "converter": "cutoutml.models.u2net.from_onnx",
+  "convolutions": 119,
+  "environment": {
+    "onnxruntime": "1.28.0",
+    "torch": "2.13.0+cpu"
+  },
+  "fine_tuning": "not supported; the BatchNorms are neutral, not calibrated",
+  "license": "Apache-2.0 (Qin et al., U^2-Net)",
+  "parity_max_abs_diff": 1.3773986040632735e-07,
+  "parity_samples": 2,
+  "parity_tolerance": 0.0001,
+  "source_path": "u2net.onnx",
+  "source_sha256": "8d10d2f3bb75ae3b6d527c77944fc5e7dcd94b29809d47a739a7a728a912b491",
+  "variant": "full"
+}
