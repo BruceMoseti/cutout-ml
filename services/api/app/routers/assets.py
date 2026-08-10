@@ -534,12 +534,17 @@ def process_asset(
 
 
 def _dispatch(job: InferenceJob, session: SessionDep, *, request_id: str | None) -> None:
-    """Send the job to Celery, or leave it pending if the broker is unreachable.
+    """Send the job to Celery, or leave it pending if dispatch fails.
 
-    A broker outage must not lose the request. The row is already committed, so the
+    A dispatch failure must not lose the request. The row is already committed, so the
     ``requeue_stuck`` maintenance task picks up anything left ``pending``; returning 202
     with ``status: pending`` is honest, whereas a 500 would make the client resubmit and
     (thanks to the idempotency key) get the same job anyway.
+
+    The recorded message deliberately does *not* name a cause. A broker outage is the
+    expected reason, but a misconfigured Celery app raises here too, and a message that
+    asserts "broker unreachable" sends whoever is debugging it to look at Redis while the
+    exception in the log says otherwise.
     """
     from services.inference.app.tasks import process_image, process_video
 
@@ -548,9 +553,17 @@ def _dispatch(job: InferenceJob, session: SessionDep, *, request_id: str | None)
         async_result = task.apply_async(
             kwargs={"job_id": str(job.id), "request_id": request_id}, queue=job.queue
         )
-    except Exception as exc:  # noqa: BLE001 - a broker outage must not lose the request
-        log.error("job_dispatch_failed", job_id=str(job.id), error=str(exc))
-        job.progress_message = "queued locally; broker unreachable"
+    except Exception as exc:  # noqa: BLE001 - a dispatch failure must not lose the request
+        log.error(
+            "job_dispatch_failed",
+            job_id=str(job.id),
+            queue=job.queue,
+            error_type=type(exc).__name__,
+            error=str(exc),
+        )
+        job.progress_message = (
+            "accepted but not yet dispatched to a worker; a maintenance pass will retry it"
+        )
         session.flush()
         return
 

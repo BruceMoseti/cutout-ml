@@ -159,12 +159,29 @@ class U2NetAdapter(TorchSegmentationModel):
         return f"models/u2net/{fname}"
 
     def weights_hint(self) -> str:
+        """What to actually do about the missing checkpoint.
+
+        Training is listed first because it is the route this repository takes and the
+        only one guaranteed to work offline. The published weights are mentioned second
+        for anyone who wants the authors' accuracy rather than a from-scratch run, but
+        they come with a caveat worth stating in the error itself: they are Apache-2.0
+        and their accuracy is not comparable with the in-repo runs, which see a
+        different (synthetic) dataset.
+        """
+        trainable = self.variant == "lite"
+        train_hint = (
+            f"Train it here: `scripts/train_suite.sh u2net-{self.variant}` "
+            "(~1 hour on 8 CPU cores). "
+            if trainable
+            else f"Training u2net-{self.variant} (44M parameters) needs a GPU. "
+        )
         return (
-            "U^2-Net weights are published by the authors (Apache-2.0) but hosted "
-            "off-PyPI; run `python -m cutoutml.models.download_weights --model "
-            f"{self.name}` while the mirror is reachable, or drop the .pth into "
-            f"{self.default_weights_hint()}. For latency-only benchmarking pass "
-            "random_init=True."
+            f"{train_hint}Alternatively the authors publish pretrained weights "
+            "(Apache-2.0, hosted on Google Drive / HuggingFace mirrors): run "
+            f"`python -m cutoutml.models.download_weights --model {self.name}` where "
+            f"those hosts are reachable, or drop the .pth into "
+            f"{self.default_weights_hint()} yourself. For latency-only benchmarking "
+            "pass random_init=True."
         )
 
     @property

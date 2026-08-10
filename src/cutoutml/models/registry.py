@@ -211,7 +211,7 @@ register(
         architecture="CutoutNet-small",
         input_size=(256, 256),
         license="MIT (original architecture and weights, this repository)",
-        source="https://github.com/your-org/cutout-ml",
+        source="https://github.com/BruceMoseti/cutout-ml",
         default_weights="cutoutnet/cutoutnet-small.pt",
         supports_random_init=True,
         description=(
@@ -231,10 +231,10 @@ register(
         architecture="CutoutNet-tiny",
         input_size=(256, 256),
         license="MIT (original architecture, this repository)",
-        source="https://github.com/your-org/cutout-ml",
+        source="https://github.com/BruceMoseti/cutout-ml",
         default_weights="cutoutnet/cutoutnet-tiny.pt",
         supports_random_init=True,
-        description="0.3M-parameter CutoutNet for measuring the latency floor.",
+        description="0.12M-parameter CutoutNet for measuring the latency floor.",
         tags=("fast",),
         options={"variant": "tiny"},
     )

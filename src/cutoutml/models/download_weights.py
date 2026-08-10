@@ -111,7 +111,7 @@ SOURCES: dict[str, WeightSource] = {
         filename="cutoutnet-small.pt",
         subdir="cutoutnet",
         license="MIT (this repository)",
-        homepage="https://github.com/your-org/cutout-ml",
+        homepage="https://github.com/BruceMoseti/cutout-ml",
         urls=(),
         note="Trained in-repo. Run `make train` (a few minutes on 8 CPU cores).",
     ),

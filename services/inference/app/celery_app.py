@@ -46,6 +46,7 @@ from typing import Any
 
 from celery import Celery
 from celery.signals import setup_logging, worker_process_init
+from kombu import Queue
 
 from cutoutml.core.config import get_settings
 from cutoutml.core.logging import configure_logging, get_logger
@@ -81,7 +82,11 @@ def build_celery(**overrides: Any) -> Celery:
         task_soft_time_limit=SOFT_TIME_LIMIT,
         result_expires=86400,
         task_default_queue="cpu",
-        task_queues=[{"name": q} for q in ALL_QUEUES],
+        # kombu.Queue objects, not dicts: Celery reads ``.name`` off each entry when it
+        # resolves the destination in apply_async, so a plain dict fails there with
+        # "'dict' object has no attribute 'name'" -- at dispatch time, not at startup,
+        # which makes it look like a broker outage rather than a config error.
+        task_queues=tuple(Queue(q) for q in ALL_QUEUES),
         task_routes=TASK_ROUTES,
         broker_transport_options={
             "visibility_timeout": HARD_TIME_LIMIT + 600,
