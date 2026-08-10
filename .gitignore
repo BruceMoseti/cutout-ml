@@ -36,15 +36,18 @@ out/
 *.db
 *.sqlite3
 
-# Model weights & large artifacts. The default CutoutNet checkpoint is an
-# exception: it is 4.6 MB, it was trained in this repository, and committing it
-# is what makes `GET /v1/models` and the image pipeline work on a fresh clone.
+# Model weights, exported graphs and engines. Nothing binary is committed: see
+# docs/models.md for how to obtain or reproduce every checkpoint the benchmark
+# suite uses. `make train` regenerates the in-repo ones from a seeded dataset.
 *.pth
 *.pt
 *.onnx
 *.engine
 *.plan
-!models/cutoutnet/cutoutnet-small.pt
+
+# Generated previews, dataset caches and rendered training/eval artefacts.
+/artifacts/
+/training/runs/*.png
 
 # OS / editor
 .DS_Store
