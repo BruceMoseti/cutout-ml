@@ -12,11 +12,14 @@ import functools
 from pathlib import Path
 from typing import Literal
 
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 """Repository root, derived from this file's location (``src/cutoutml/core``)."""
+
+DEFAULT_JWT_SECRET = "change-me-in-production"
+"""Development-only signing key. Refused when ``environment == "prod"``."""
 
 
 class Settings(BaseSettings):
@@ -58,7 +61,7 @@ class Settings(BaseSettings):
     celery_task_always_eager: bool = False
 
     # ---------------------------------------------------------------- auth
-    jwt_secret: str = "change-me-in-production"
+    jwt_secret: str = DEFAULT_JWT_SECRET
     jwt_algorithm: str = "HS256"
     jwt_access_ttl_seconds: int = 3600
     jwt_issuer: str = "cutoutml"
@@ -95,6 +98,24 @@ class Settings(BaseSettings):
     @classmethod
     def _expand(cls, value: Path) -> Path:
         return Path(value).expanduser()
+
+    @model_validator(mode="after")
+    def _refuse_insecure_production(self) -> Settings:
+        """Fail fast when production is configured with the development signing key.
+
+        A default JWT secret is not a weak secret, it is a *published* one: anyone with
+        the repository can mint a token for any user id. The check lives here rather
+        than in the API so the Celery worker and the CLI refuse the same configuration,
+        and it is a boot-time crash rather than a warning because a warning in a log
+        nobody reads is how this class of mistake reaches production in the first place.
+        """
+        if self.environment == "prod" and self.jwt_secret == DEFAULT_JWT_SECRET:
+            raise ValueError(
+                "CUTOUTML_JWT_SECRET is still the development default while "
+                "CUTOUTML_ENVIRONMENT=prod. Generate one with "
+                "`python -c 'import secrets; print(secrets.token_urlsafe(48))'`."
+            )
+        return self
 
     @property
     def broker_url(self) -> str:
