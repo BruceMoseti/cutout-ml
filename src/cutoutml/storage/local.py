@@ -83,7 +83,7 @@ class LocalStorage(Storage):
                 shutil.copyfileobj(stream, fh, length=1024 * 1024)
                 fh.flush()
                 os.fsync(fh.fileno())
-            os.replace(tmp_name, path)
+            Path(tmp_name).replace(path)
         except BaseException:
             Path(tmp_name).unlink(missing_ok=True)
             raise
@@ -96,7 +96,7 @@ class LocalStorage(Storage):
                 fh.write(data)
                 fh.flush()
                 os.fsync(fh.fileno())
-            os.replace(tmp_name, path)
+            Path(tmp_name).replace(path)
         except BaseException:
             Path(tmp_name).unlink(missing_ok=True)
             raise
@@ -207,7 +207,18 @@ class LocalStorage(Storage):
             max_bytes=max_bytes or 0,
         )
 
-    def presign_download(self, key: str, *, expires_in: int | None = None) -> str:
+    def presign_download(
+        self,
+        key: str,
+        *,
+        expires_in: int | None = None,  # noqa: ARG002 - part of the Storage contract
+    ) -> str:
+        """A URL for reading the object.
+
+        ``expires_in`` is accepted and ignored: a filesystem path has no expiry to
+        encode. The interface keeps the parameter so callers do not branch on backend,
+        and the API applies its own authorisation on the route this points at.
+        """
         if not self.exists(key):
             raise ObjectNotFoundError(key)
         return f"{self.url_prefix}/{key}"

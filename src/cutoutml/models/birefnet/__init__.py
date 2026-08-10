@@ -2,8 +2,8 @@
 
 from cutoutml.models.birefnet.adapter import BiRefNetAdapter
 from cutoutml.models.birefnet.arch import (
-    BiRefNetCompact,
     BilateralReferenceBlock,
+    BiRefNetCompact,
     birefnet_compact,
     birefnet_tiny,
     sobel_gradient,

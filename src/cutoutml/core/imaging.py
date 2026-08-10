@@ -158,8 +158,8 @@ def letterbox(
         scale = min(scale, 1.0)
 
     # Round to nearest so that e.g. a 1:1 image into a square canvas needs no pad.
-    nw = max(1, min(tw, int(round(w * scale))))
-    nh = max(1, min(th, int(round(h * scale))))
+    nw = max(1, min(tw, round(w * scale)))
+    nh = max(1, min(th, round(h * scale)))
 
     resized = (
         image
@@ -303,7 +303,7 @@ def cover_resize(image: np.ndarray, target: tuple[int, int]) -> np.ndarray:
     tw, th = target
     h, w = image.shape[:2]
     scale = max(tw / w, th / h)
-    nw, nh = max(tw, int(math.ceil(w * scale))), max(th, int(math.ceil(h * scale)))
+    nw, nh = max(tw, math.ceil(w * scale)), max(th, math.ceil(h * scale))
     interp = cv2.INTER_AREA if scale < 1 else cv2.INTER_LINEAR
     resized = cv2.resize(image, (nw, nh), interpolation=interp)
     x0, y0 = (nw - tw) // 2, (nh - th) // 2

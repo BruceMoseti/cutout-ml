@@ -45,6 +45,7 @@ import numpy as np
 import psutil
 import torch
 
+from cutoutml.benchmarks.environment import Environment, capture
 from cutoutml.core.config import get_settings
 from cutoutml.core.devices import (
     Precision,
@@ -56,10 +57,14 @@ from cutoutml.core.devices import (
 from cutoutml.core.logging import get_logger
 from cutoutml.core.metrics import MaskMetrics, aggregate, compute_all
 from cutoutml.core.refine import RefineConfig, refine_alpha
-from cutoutml.benchmarks.environment import Environment, capture
 from cutoutml.datasets.synthetic import SyntheticConfig, SyntheticSegmentationDataset
-from cutoutml.models.base import SegmentationModel, WeightsUnavailableError
+from cutoutml.models.base import (
+    SegmentationModel,
+    TorchSegmentationModel,
+    WeightsUnavailableError,
+)
 from cutoutml.models.registry import get_model
+from cutoutml.models.torch_compile import CompileOutcome, compile_module, not_attempted
 
 log = get_logger(__name__)
 
@@ -78,6 +83,10 @@ class BenchmarkCase:
     random_init: bool = False
     label: str | None = None
     refine: bool = True
+    #: Wrap the module in ``torch.compile``. Ignored for non-PyTorch runtimes, and a
+    #: failed compile is recorded rather than silently falling back to eager.
+    compile: bool = False
+    compile_mode: str = "default"
     options: dict[str, Any] = dataclasses.field(default_factory=dict)
 
     @property
@@ -86,7 +95,8 @@ class BenchmarkCase:
             return self.label
         suffix = "-randominit" if self.random_init else ""
         res = f"@{self.resolution[0]}x{self.resolution[1]}" if self.resolution else ""
-        return f"{self.model}{suffix}{res}-{self.precision}-b{self.batch_size}"
+        compiled = "-compiled" if self.compile else ""
+        return f"{self.model}{suffix}{res}{compiled}-{self.precision}-b{self.batch_size}"
 
     def as_dict(self) -> dict[str, Any]:
         d = dataclasses.asdict(self)
@@ -134,19 +144,35 @@ class CaseResult:
     accuracy_valid: bool
     model_size_bytes: int | None
     stage_timings_ms: dict[str, float] | None
+    compile: CompileOutcome = dataclasses.field(default_factory=not_attempted)
     error: str | None = None
     notes: str = ""
+
+    @property
+    def runtime(self) -> str:
+        """Runtime label for the report table.
+
+        Taken from the model's own metadata for non-PyTorch backends (onnxruntime
+        reports which execution provider it actually got) and from the compile
+        outcome otherwise.
+        """
+        declared = (self.model_metadata or {}).get("runtime", "")
+        if declared and not declared.startswith("pytorch"):
+            return str(declared)
+        return self.compile.runtime_label
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "case": self.case.as_dict(),
             "status": self.status,
+            "runtime": self.runtime,
             "model_metadata": self.model_metadata,
             "latency": self.latency.as_dict() if self.latency else None,
             "accuracy": self.accuracy,
             "accuracy_valid": self.accuracy_valid,
             "model_size_bytes": self.model_size_bytes,
             "stage_timings_ms": self.stage_timings_ms,
+            "compile": self.compile.as_dict(),
             "error": self.error,
             "notes": self.notes,
         }
@@ -257,11 +283,17 @@ class BenchmarkHarness:
             )
 
         try:
+            compile_outcome = self._maybe_compile(model, case)
             latency = self._measure_latency(model, case)
             accuracy_valid = not case.random_init
             accuracy = self._measure_accuracy(model, case) if accuracy_valid else None
             stages = self._measure_stages(model, case)
             metadata = model.metadata().as_dict()
+            notes: list[str] = []
+            if case.random_init:
+                notes.append("accuracy: n/a - random weights (latency only)")
+            if compile_outcome.attempted and not compile_outcome.succeeded:
+                notes.append("torch.compile failed; timings are eager-mode")
             return CaseResult(
                 case=case,
                 status="ok",
@@ -271,11 +303,8 @@ class BenchmarkHarness:
                 accuracy_valid=accuracy_valid,
                 model_size_bytes=self._model_size(model),
                 stage_timings_ms=stages,
-                notes=(
-                    "accuracy: n/a - random weights (latency only)"
-                    if case.random_init
-                    else ""
-                ),
+                compile=compile_outcome,
+                notes="; ".join(notes),
             )
         finally:
             model.unload()
@@ -316,6 +345,30 @@ class BenchmarkHarness:
             load=True,
             **overrides,
         )
+
+    def _maybe_compile(self, model: SegmentationModel, case: BenchmarkCase) -> CompileOutcome:
+        """Compile the module in place when the case asks for it.
+
+        Compilation happens *before* the warmup loop and drives one forward pass, so
+        the timing loop never includes codegen. Non-PyTorch adapters have no module to
+        compile and are reported as not-attempted rather than as a failure.
+        """
+        if not case.compile:
+            return not_attempted()
+        if not isinstance(model, TorchSegmentationModel) or model.module is None:
+            log.info("compile_skipped_non_torch", case=case.name, runtime=type(model).__name__)
+            return not_attempted()
+
+        samples = self.samples()
+        batch = [samples[i % len(samples)][0] for i in range(max(1, case.batch_size))]
+        example, _ = model.preprocess(batch)
+        example = example.to(model.device)
+        if model.use_channels_last:
+            example = example.contiguous(memory_format=torch.channels_last)
+
+        compiled, outcome = compile_module(model.module, example, mode=case.compile_mode)
+        model.module = compiled
+        return outcome
 
     def _measure_latency(self, model: SegmentationModel, case: BenchmarkCase) -> LatencyStats:
         """Timed loop with warmup discarded and CUDA synchronisation."""

@@ -223,7 +223,7 @@ def _cap_side(img: Image.Image, max_side: int) -> Image.Image:
     if longest <= max_side:
         return img
     scale = max_side / longest
-    new_size = (max(1, int(round(img.width * scale))), max(1, int(round(img.height * scale))))
+    new_size = (max(1, round(img.width * scale)), max(1, round(img.height * scale)))
     return img.resize(new_size, Image.Resampling.LANCZOS)
 
 

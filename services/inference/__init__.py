@@ -1,0 +1,1 @@
+"""Celery-based inference worker."""

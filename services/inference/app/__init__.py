@@ -1,0 +1,1 @@
+"""CutoutML inference worker."""

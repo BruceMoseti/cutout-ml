@@ -35,13 +35,20 @@ from cutoutml.core.refine import RefineConfig  # noqa: E402
 log = get_logger("benchmarks.run")
 
 
-def default_cases(*, include_batches: bool = True) -> list[BenchmarkCase]:
+def default_cases(
+    *, include_batches: bool = True, include_compile: bool = True
+) -> list[BenchmarkCase]:
     """The committed suite.
 
     Ordering is deliberate: calibration references first, then the non-learned
-    baseline, then the trained model in each runtime, then the large architectures with
-    random weights for latency only. Reading the table top to bottom tells the story of
-    what each layer of sophistication buys.
+    baselines, then the models actually trained in this repository, then the runtime
+    comparison for one of them, then the architectures that can only be measured for
+    latency. Reading the table top to bottom tells the story of what each layer of
+    sophistication buys.
+
+    A case whose checkpoint is absent comes back as ``status="skipped"`` with the
+    reason attached rather than silently falling back to random weights, so a missing
+    training run can never be misread as a bad accuracy number.
     """
     cases: list[BenchmarkCase] = [
         # --- content-blind calibration references
@@ -53,26 +60,24 @@ def default_cases(*, include_batches: bool = True) -> list[BenchmarkCase]:
         BenchmarkCase(
             model="classical-saliency-grabcut", device="cpu", label="classical-saliency+grabcut"
         ),
-        # --- the model actually trained in this repo
+        # --- the capacity sweep: identical data budget, three sizes
+        BenchmarkCase(model="cutoutnet-tiny", device="cpu", label="cutoutnet-tiny-fp32"),
         BenchmarkCase(model="cutoutnet", precision="fp32", device="cpu", label="cutoutnet-fp32"),
+        BenchmarkCase(model="cutoutnet-base", device="cpu", label="cutoutnet-base-fp32"),
+        # --- a different architecture at a comparable parameter count
+        BenchmarkCase(model="u2net-lite", device="cpu", label="u2net-lite-fp32"),
+        # --- same weights, different runtime
         BenchmarkCase(
             model="cutoutnet-onnx", precision="fp32", device="cpu", label="cutoutnet-onnx-cpu"
         ),
-        # --- architectures whose pretrained weights are not downloadable here:
-        #     latency only, accuracy explicitly n/a
+        # --- architectures whose pretrained weights are not downloadable here and
+        #     which are too expensive to train on this box: latency only.
         BenchmarkCase(
             model="u2net",
             precision="fp32",
             device="cpu",
             random_init=True,
             label="u2net-full-randominit",
-        ),
-        BenchmarkCase(
-            model="u2net-lite",
-            precision="fp32",
-            device="cpu",
-            random_init=True,
-            label="u2net-lite-randominit",
         ),
         BenchmarkCase(
             model="birefnet",
@@ -82,6 +87,22 @@ def default_cases(*, include_batches: bool = True) -> list[BenchmarkCase]:
             label="birefnet-compact-randominit",
         ),
     ]
+
+    if include_compile:
+        # Same weights, same batch, same resolution as the eager row above: the only
+        # difference is the Inductor backend, so the delta is attributable to it.
+        cases += [
+            BenchmarkCase(
+                model="cutoutnet", device="cpu", compile=True, label="cutoutnet-fp32-compiled"
+            ),
+            BenchmarkCase(
+                model="cutoutnet",
+                device="cpu",
+                batch_size=8,
+                compile=True,
+                label="cutoutnet-fp32-b8-compiled",
+            ),
+        ]
 
     if include_batches:
         # Batch scaling for the trained model: shows the throughput/latency trade-off
@@ -110,6 +131,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--torch-threads", type=int, default=0, help="0 = PyTorch default")
     p.add_argument("--quick", action="store_true", help="tiny run for smoke testing")
     p.add_argument("--no-batches", action="store_true", help="skip batch-scaling cases")
+    p.add_argument(
+        "--no-compile",
+        action="store_true",
+        help="skip torch.compile cases (they add a minute of codegen per case)",
+    )
     p.add_argument("--no-render", action="store_true", help="do not regenerate markdown")
     p.add_argument("--no-refine", action="store_true", help="measure accuracy without refinement")
     p.add_argument("--output-dir", type=Path, default=None)
@@ -128,13 +154,16 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.quick:
         args.warmup, args.repetitions, args.accuracy_samples = 1, 3, 8
+        # Inductor codegen costs tens of seconds per case regardless of how few
+        # repetitions follow it, which defeats the purpose of a smoke check.
+        args.no_compile = True
 
     config = BenchmarkConfig(
         warmup=args.warmup,
         repetitions=args.repetitions,
         accuracy_samples=args.accuracy_samples,
         dataset_resolution=(args.resolution, args.resolution),
-        dataset_split=args.dataset_split if args.dataset_root is None else args.dataset_split,
+        dataset_split=args.dataset_split,
         torch_threads=args.torch_threads,
         refine=RefineConfig.off() if args.no_refine else RefineConfig.fast(),
     )
@@ -157,7 +186,9 @@ def main(argv: list[str] | None = None) -> int:
         dataset_description = dataset.describe()
         log.info("using_real_dataset", family=family, samples=len(dataset))
 
-    cases = default_cases(include_batches=not args.no_batches)
+    cases = default_cases(
+        include_batches=not args.no_batches, include_compile=not args.no_compile
+    )
     if args.models:
         wanted = set(args.models)
         cases = [c for c in cases if c.model in wanted or (c.label or "") in wanted]

@@ -12,7 +12,6 @@ from __future__ import annotations
 from logging.config import fileConfig
 
 from alembic import context
-from sqlalchemy import pool
 
 from cutoutml.core.config import get_settings
 from cutoutml.db.models import Base
@@ -46,9 +45,6 @@ def run_migrations_offline() -> None:
 def run_migrations_online() -> None:
     """Apply migrations against a live connection."""
     connectable = build_engine(settings)
-    # NullPool: a migration process opens one connection, does its work and exits;
-    # a pool would just delay shutdown.
-    connectable.pool._dialect  # noqa: B018 - touch to ensure dialect is initialised
     with connectable.connect() as connection:
         context.configure(
             connection=connection,
@@ -66,5 +62,3 @@ if context.is_offline_mode():
     run_migrations_offline()
 else:
     run_migrations_online()
-
-__all__ = ["pool"]

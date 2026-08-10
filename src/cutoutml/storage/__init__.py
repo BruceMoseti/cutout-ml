@@ -2,10 +2,10 @@
 
 from cutoutml.storage.base import (
     ObjectMetadata,
+    ObjectNotFoundError,
     PresignedUpload,
     Storage,
     StorageError,
-    ObjectNotFoundError,
     build_storage_key,
 )
 from cutoutml.storage.factory import get_storage

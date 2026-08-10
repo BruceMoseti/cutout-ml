@@ -37,7 +37,9 @@ run() {
 
 archs=("$@")
 if [ ${#archs[@]} -eq 0 ]; then
-  archs=(cutoutnet-base u2net-lite cutoutnet-tiny)
+  # Ordered so that the identical-budget CutoutNet capacity sweep completes first;
+  # u2net-lite is the odd budget out and therefore goes last.
+  archs=(cutoutnet-base cutoutnet-tiny u2net-lite)
 fi
 
 for arch in "${archs[@]}"; do

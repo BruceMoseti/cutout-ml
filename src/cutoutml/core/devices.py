@@ -143,11 +143,10 @@ def bf16_supported(device: torch.device) -> bool:
             return bool(torch.cuda.is_bf16_supported())
         except Exception:  # pragma: no cover
             return False
-    if device.type == "cpu":
-        # torch.autocast('cpu') supports bf16 everywhere; it is only *fast* with
-        # AVX512-BF16/AMX, but correctness does not depend on that.
-        return True
-    return False
+    # torch.autocast('cpu') supports bf16 everywhere; it is only *fast* with
+    # AVX512-BF16/AMX, but correctness does not depend on that. Any other device type
+    # (mps, xpu) has no bf16 autocast path we have tested.
+    return device.type == "cpu"
 
 
 def resolve_precision(requested: Precision, device: torch.device) -> Precision:

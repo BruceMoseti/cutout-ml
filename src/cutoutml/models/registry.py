@@ -14,11 +14,12 @@ even instantiates a network.
 from __future__ import annotations
 
 import importlib
+import importlib.util
 import threading
 from pathlib import Path
 from typing import Any
 
-from cutoutml.core.config import get_settings
+from cutoutml.core.config import REPO_ROOT, get_settings
 from cutoutml.core.devices import Precision
 from cutoutml.core.logging import get_logger
 from cutoutml.models.base import ModelSpec, SegmentationModel
@@ -89,6 +90,51 @@ def _resolve_weights(spec: ModelSpec) -> Path | None:
     if not candidate.is_absolute():
         candidate = get_settings().model_weights_dir / candidate
     return candidate
+
+
+def _artifact_candidates(spec: ModelSpec) -> list[Path]:
+    """Every on-disk artefact a spec could load from."""
+    candidates: list[Path] = []
+    resolved = _resolve_weights(spec)
+    if resolved is not None:
+        candidates.append(resolved)
+    for key in ("onnx_path", "engine_path"):
+        raw = spec.options.get(key)
+        if not raw:
+            continue
+        path = Path(str(raw))
+        candidates.append(path if path.is_absolute() else REPO_ROOT / path)
+    return candidates
+
+
+def weights_available(spec: ModelSpec) -> bool:
+    """Whether this spec's artefacts exist on disk.
+
+    Specs that need nothing (the classical baselines) are always available. Everything
+    else needs at least one of its candidate paths to exist - which is why
+    ``GET /models`` can tell a caller *before* they submit a job that ``u2net`` has no
+    weights here, instead of failing the job asynchronously.
+    """
+    candidates = _artifact_candidates(spec)
+    if not candidates:
+        return True
+    return any(path.is_file() for path in candidates)
+
+
+def runtime_available(spec: ModelSpec) -> bool:
+    """Whether the runtime this spec needs is importable/usable on this machine."""
+    if spec.runtime == "onnxruntime":
+        return importlib.util.find_spec("onnxruntime") is not None
+    if spec.runtime == "tensorrt":
+        from cutoutml.core.devices import cuda_available
+
+        return importlib.util.find_spec("tensorrt") is not None and cuda_available()
+    return True
+
+
+def usable_models() -> list[ModelSpec]:
+    """Specs that could actually serve a request right now."""
+    return [s for s in list_models() if weights_available(s) and runtime_available(s)]
 
 
 def get_model(
@@ -415,5 +461,17 @@ register(
 
 
 def catalogue() -> list[dict[str, Any]]:
-    """JSON-serialisable catalogue, used by ``GET /models``."""
-    return [spec.as_dict() for spec in list_models()]
+    """JSON-serialisable catalogue, used by ``GET /models``.
+
+    Availability is computed per call rather than cached: a checkpoint appearing in
+    ``models/`` (a finished training run, a mounted volume) should show up without a
+    restart.
+    """
+    return [
+        spec.as_dict()
+        | {
+            "weights_available": weights_available(spec),
+            "runtime_available": runtime_available(spec),
+        }
+        for spec in list_models()
+    ]

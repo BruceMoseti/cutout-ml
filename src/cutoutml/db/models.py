@@ -66,7 +66,7 @@ class Base(DeclarativeBase):
         return out
 
 
-class JobStatus(str, enum.Enum):
+class JobStatus(enum.StrEnum):
     """Lifecycle of an inference job."""
 
     PENDING = "pending"
@@ -81,12 +81,12 @@ class JobStatus(str, enum.Enum):
         return self in {JobStatus.SUCCEEDED, JobStatus.FAILED, JobStatus.CANCELLED}
 
 
-class AssetKind(str, enum.Enum):
+class AssetKind(enum.StrEnum):
     IMAGE = "image"
     VIDEO = "video"
 
 
-class AssetStatus(str, enum.Enum):
+class AssetStatus(enum.StrEnum):
     """Uploads are two-phase: a row exists before the bytes do."""
 
     AWAITING_UPLOAD = "awaiting_upload"

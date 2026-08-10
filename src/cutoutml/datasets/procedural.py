@@ -79,7 +79,7 @@ def fbm(
     amplitude, weight_sum = 1.0, 0.0
     cells = float(base_cells)
     for _ in range(max(1, octaves)):
-        total += amplitude * value_noise(rng, size, cells=int(round(cells)))
+        total += amplitude * value_noise(rng, size, cells=round(cells))
         weight_sum += amplitude
         amplitude *= gain
         cells *= lacunarity

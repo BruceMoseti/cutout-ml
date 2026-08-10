@@ -114,7 +114,7 @@ class InvertedResidual(nn.Module):
         use_se: bool = True,
     ) -> None:
         super().__init__()
-        hidden = max(8, int(round(in_ch * expand)))
+        hidden = max(8, round(in_ch * expand))
         self.use_residual = stride == 1 and in_ch == out_ch
 
         layers: list[nn.Module] = []

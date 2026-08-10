@@ -196,7 +196,7 @@ def _s_region(p: np.ndarray, gb: np.ndarray) -> float:
     if total == 0:
         return 0.0
     ys, xs = np.nonzero(gb > 0.5)
-    cy, cx = int(round(ys.mean())), int(round(xs.mean()))
+    cy, cx = round(ys.mean()), round(xs.mean())
     cy = int(np.clip(cy, 1, h - 1))
     cx = int(np.clip(cx, 1, w - 1))
 
