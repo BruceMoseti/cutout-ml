@@ -30,7 +30,11 @@ def get_storage() -> Storage:
     """Process-wide storage singleton.
 
     Cached because ``S3Storage`` builds a boto3 client, which is expensive
-    (credential resolution, TLS context) and thread-safe to share. Tests call
-    ``get_storage.cache_clear()``.
+    (credential resolution, TLS context) and thread-safe to share.
     """
     return build_storage(get_settings())
+
+
+def reset_storage_cache() -> None:
+    """Drop the cached backend. Needed by tests that repoint ``storage_root``."""
+    get_storage.cache_clear()
