@@ -25,6 +25,19 @@ makes it meaningful attached above it — CPU, thread count, dataset fingerprint
 repetitions, the commit and the torch build. No number in this project is typed by hand, in the
 UI or in this README.</sub>
 
+```bash
+git clone https://github.com/BruceMoseti/cutout-ml.git && cd cutout-ml
+make venv install install-web && make migrate
+make api        # in one terminal  →  :8000
+make worker     # in another       →  cpu queue
+make web        # in a third       →  http://localhost:3000
+```
+
+Or `docker compose up --build`. [Running locally](#running-locally) covers prerequisites and the
+GPU variants; the CPU path needs no GPU and no downloads.
+
+---
+
 ## Why I built it
 
 I wanted to know what it actually takes to put a segmentation model behind an HTTP API and
@@ -509,6 +522,14 @@ Ordered by what I would do next, not by ambition:
    deliberately hardest.
 7. **API keys and refresh tokens.** Machine-to-machine use currently means storing a
    password.
+
+## The other two projects
+
+Three separate systems, built to show three different things. Each stands alone; together they
+are backend and retrieval, applied machine learning, and distributed real-time state.
+
+- **[contextforge](https://github.com/BruceMoseti/contextforge)** — Retrieval-augmented question answering over your own PDFs, with citations that resolve to a character range.
+- **[forge-ide](https://github.com/BruceMoseti/forge-ide)** — Collaborative editing on CRDTs, with the project running in the browser instead of on a server.
 
 ## Licence
 
